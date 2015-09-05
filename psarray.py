@@ -1,6 +1,10 @@
 import numbers
 import numpy as np
 
+# =============================================================================#
+#                                 grid2d class                                 #
+# =============================================================================#
+
 class grid2d(object):
     def __init__(self, nx, ny):
         assert nx > 0
@@ -16,6 +20,10 @@ class grid2d(object):
     @property
     def ny(self):
         return self._ny
+
+    # ---------------------------------------------------------------------#
+    #                           array constructors                         #
+    # ---------------------------------------------------------------------#
 
     def array(self, init_func):
         return psarray(self, init_func)
@@ -39,6 +47,14 @@ class grid2d(object):
         a = self.array(None)
         a._data = np.random.random((self.nx, self.ny) + tuple(shape))
         return a
+
+    # ---------------------------------------------------------------------#
+    #                            global operations                         #
+    # ---------------------------------------------------------------------#
+
+    def sum(self, a):
+        assert a.grid == self
+        return a._data.sum(axis=(0,1))
 
 # =============================================================================#
 #                                 psarray class                                #
