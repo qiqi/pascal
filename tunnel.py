@@ -23,14 +23,13 @@ w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
 Lx, Ly = 25., 5.
 dx = dy = 0.25
-dt = dx / u0 * 0.5
+dt = dx / c0 * 0.5
 grid = grid2d(int(Lx / dx), int(Ly / dy))
-grid = grid2d(1,1)
 
 x = grid.array(lambda i,j: (i + 0.5) * dx -0.2 * Lx)
-y = grid.array(lambda i,j: (j + 0.5) * dy -0.2 * Ly)
+y = grid.array(lambda i,j: (j + 0.5) * dy -0.5 * Ly)
 
-obstacle = exp(-(x**2 + y**2)**4)
+obstacle = exp(-(x**2 + y**2)**8)
 
 dc = cos((x / Lx + 0.2) * pi)**64
 
@@ -139,20 +138,23 @@ print(conserved(w))
 
 figure(figsize=(18,10))
 for iplot in range(5000):
-    nStepPerPlot = 1000
+    nStepPerPlot = 500
     for istep in range(nStepPerPlot):
-        w0 = w
-        w -= dt * rhs(w)
+        dw0 = -dt * rhs(w)
+        dw1 = -dt * rhs(w + 0.5 * dw0)
+        dw2 = -dt * rhs(w + 0.5 * dw1)
+        dw3 = -dt * rhs(w + dw2)
+        w += (dw0 + dw3) / 6 + (dw1 + dw2) / 3
     print(r'<br>')
     print(conserved(w))
     r, ru, rv, p = w
     rho, u, v = r * r, ru / r, rv / r
     clf()
     u_range = linspace(-u0, u0 * 2, 100)
-    subplot(2,1,1); contourf(x, y, value(u).T, u_range);
+    subplot(2,1,1); contourf(x._data.T, y._data.T, u._data.T, u_range);
     axis('scaled'); colorbar()
     v_range = linspace(-u0, u0, 100)
-    subplot(2,1,2); contourf(x, y, value(v).T, v_range);
+    subplot(2,1,2); contourf(x._data.T, y._data.T, v._data.T, v_range);
     axis('scaled'); colorbar()
     savefig('fig{0:06d}.png'.format(iplot))
 
