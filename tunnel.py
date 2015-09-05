@@ -24,37 +24,32 @@ w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 Lx, Ly = 25., 5.
 dx = dy = 0.25
 dt = dx / u0 * 0.5
-Nx, Ny = int(Lx / dx), int(Ly / dy)
+grid = grid2d(int(Lx / dx), int(Ly / dy))
 
-x = array2d(Nx, Ny, lambda i,j: (i + 0.5) * dx -0.2 * Lx)
-y = array2d(Nx, Ny, lambda i,j: (j + 0.5) * dy -0.2 * Ly)
+x = grid.array(lambda i,j: (i + 0.5) * dx -0.2 * Lx)
+y = grid.array(lambda i,j: (j + 0.5) * dy -0.2 * Ly)
 
 obstacle = exp(-(x**2 + y**2)**4)
 
 dc = cos((x / Lx + 0.2) * pi)**64
-
-stop
 
 # ---------------------------------------------------------------------------- #
 #                        FINITE DIFFERENCE DISCRETIZATION                      #
 # ---------------------------------------------------------------------------- #
 
 def diffx(w):
-    return (roll(w, -1, axis=0) - roll(w, 1, axis=0)) / (2 * dx)
+    return (w.x_p - w.x_m) / (2 * dx)
 
 def diffy(w):
-    return (roll(w, -1, axis=1) - roll(w, 1, axis=1)) / (2 * dy)
+    return (w.y_p - w.y_m) / (2 * dy)
 
 def dissipation(r, u, dc):
     # conservative, negative definite dissipation applied to r*d(ru)/dt
-    def laplace(u):
-        return (roll(u, -1, axis=0) + roll(u, 1, axis=0) \
-              + roll(u, -1, axis=1) + roll(u, 1, axis=1)) * 0.25 - u
-    rho = r * r
-    return laplace(dc * rho * laplace(u))
+    laplace = lambda u : (w.x_p + w.x_m + w.y_p + w.y_m) * 0.25 - u
+    return laplace(dc * r * r * laplace(u))
 
 def rhs(w):
-    r, ru, rv, p = w[:,:,0], w[:,:,1], w[:,:,2], w[:,:,-1]
+    r, ru, rv, p = w
     u, v = ru / r, rv / r
 
     mass = diffx(r * ru) + diffy(r * rv)
@@ -134,8 +129,8 @@ parser.add_argument('--restart', type=str, default='')
 args = parser.parse_args()
 
 if len(args.restart) == 0:
-    w = zeros([Nx, Ny, 4]) + w0
-    w[:,:,1] *= 1 + 0.01 * (random.random(w[:,:,1].shape) - 0.5)
+    w = grid.zeros([4]) + w0
+    w[:] *= 1 + 0.01 * (grid.random() - 0.5)
 else:
     print('restarting from ', args.restart)
     w = load(args.restart)

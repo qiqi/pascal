@@ -1,16 +1,57 @@
 import numbers
 import numpy as np
 
-class array2d(object):
-    def __init__(self, nx, ny, init_func):
+class grid2d(object):
+    def __init__(self, nx, ny):
         assert nx > 0
         assert ny > 0
 
         self._nx = int(nx)
         self._ny = int(ny)
 
+    @property
+    def nx(self):
+        return self._nx
+
+    @property
+    def ny(self):
+        return self._ny
+
+    def array(self, init_func):
+        return psarray(self, init_func)
+
+    def empty(self, shape):
+        a = self.array(None)
+        a._data = np.empty((self.nx, self.ny) + tuple(shape))
+        return a
+
+    def zeros(self, shape):
+        a = self.array(None)
+        a._data = np.zeros((self.nx, self.ny) + tuple(shape))
+        return a
+
+    def ones(self, shape):
+        a = self.array(None)
+        a._data = np.ones((self.nx, self.ny) + tuple(shape))
+        return a
+
+    def random(self, shape=()):
+        a = self.array(None)
+        a._data = np.random.random((self.nx, self.ny) + tuple(shape))
+        return a
+
+# =============================================================================#
+#                                 psarray class                                #
+# =============================================================================#
+
+class psarray(object):
+    def __init__(self, grid, init_func):
+        self.grid = grid
+        assert grid.nx > 0
+        assert grid.ny > 0
+
         if init_func:
-            j, i = np.meshgrid(np.arange(self._ny), np.arange(self._nx))
+            j, i = np.meshgrid(np.arange(self.ny), np.arange(self.nx))
             data = np.array(init_func(i, j))
 
             # roll the last two axes, i and j, to the first two
@@ -18,6 +59,10 @@ class array2d(object):
             data = np.rollaxis(data, -1)
 
             self._data = np.array(data, dtype=np.float64, order='C')
+
+    # ---------------------------------------------------------------------#
+    #                           size information                           #
+    # ---------------------------------------------------------------------#
 
     @property
     def shape(self):
@@ -33,11 +78,43 @@ class array2d(object):
 
     @property
     def nx(self):
-        return self._nx
+        return self.grid.nx
 
     @property
     def ny(self):
-        return self._ny
+        return self.grid.ny
+
+    # ---------------------------------------------------------------------#
+    #                         access spatial neighbors                     #
+    # ---------------------------------------------------------------------#
+
+    @property
+    def x_p(self):
+        y = self.grid.array(None)
+        y._data = np.roll(self._data, -1, axis=0)
+        return y
+
+    @property
+    def x_m(self):
+        y = self.grid.array(None)
+        y._data = np.roll(self._data, +1, axis=0)
+        return y
+
+    @property
+    def y_p(self):
+        y = self.grid.array(None)
+        y._data = np.roll(self._data, -1, axis=1)
+        return y
+
+    @property
+    def y_m(self):
+        y = self.grid.array(None)
+        y._data = np.roll(self._data, +1, axis=1)
+        return y
+
+    # ---------------------------------------------------------------------#
+    #                         algorithmic operations                       #
+    # ---------------------------------------------------------------------#
 
     def __neg__(self):
         y = empty_like(self)
@@ -48,25 +125,49 @@ class array2d(object):
         return self.__add__(a)
 
     def __add__(self, a):
-        if isinstance(a, array2d):
+        if isinstance(a, psarray):
             assert a.nx == self.nx and a.ny == self.ny
-            y = array2d(self.nx, self.ny, None)
-            y._data = self._data + a._data
+            y = self.grid.array(None)
+            if self.ndim > 0 and a.ndim == 0:
+                y._data = self._data + a._data[:,:,np.newaxis]
+            elif self.ndim == 0 and a.ndim > 0:
+                y._data = self._data[:,:,np.newaxis] + a._data
+            else:
+                y._data = self._data + a._data
         elif isinstance(a, numbers.Number):
             y = empty_like(self)
             y._data[:] = self._data + a
+        elif isinstance(a, np.ndarray):
+            y = self.grid.array(None)
+            y._data = self._data + a
+        else:
+            return NotImplemented
         return y
+
+    def __rsub__(self, a):
+        return a + (-self)
+
+    def __sub__(self, a):
+        return self + (-a)
 
     def __rmul__(self, a):
         return self.__mul__(a)
 
     def __mul__(self, a):
-        if isinstance(a, array2d):
+        if isinstance(a, psarray):
             assert a.nx == self.nx and a.ny == self.ny
-            y = array2d(self.nx, self.ny, None)
-            y._data = self._data * a._data
+            y = self.grid.array(None)
+            if self.ndim > 0 and a.ndim == 0:
+                y._data = self._data * a._data[:,:,np.newaxis]
+            elif self.ndim == 0 and a.ndim > 0:
+                y._data = self._data[:,:,np.newaxis] * a._data
+            else:
+                y._data = self._data * a._data
         elif isinstance(a, numbers.Number):
             y = empty_like(self)
+            y._data[:] = self._data * a
+        elif isinstance(a, np.ndarray):
+            y = self.grid.array(None)
             y._data[:] = self._data * a
         return y
 
@@ -74,10 +175,21 @@ class array2d(object):
         return self.__truediv__(a)
 
     def __truediv__(self, a):
-        if not isinstance(a, numbers.Number):
-            return NotImplemented
-        y = empty_like(self)
-        y._data[:] = self._data / a
+        if isinstance(a, psarray):
+            assert a.nx == self.nx and a.ny == self.ny
+            y = self.grid.array(None)
+            if self.ndim > 0 and a.ndim == 0:
+                y._data = self._data / a._data[:,:,np.newaxis]
+            elif self.ndim == 0 and a.ndim > 0:
+                y._data = self._data[:,:,np.newaxis] / a._data
+            else:
+                y._data = self._data / a._data
+        elif isinstance(a, numbers.Number):
+            y = empty_like(self)
+            y._data[:] = self._data / a
+        elif isinstance(a, np.ndarray):
+            y = self.grid.array(None)
+            y._data[:] = self._data / a
         return y
 
     def __pow__(self, a):
@@ -87,13 +199,44 @@ class array2d(object):
         y._data[:] = self._data**a
         return y
 
+    # ---------------------------------------------------------------------#
+    #                               indexing                               #
+    # ---------------------------------------------------------------------#
+
+    def _data_index_(self, ind):
+        if not isinstance(ind, tuple):
+            ind = (ind,)
+        ind = (slice(None,None,None),) * 2 + ind
+        return ind
+
+    def __getitem__(self, ind):
+        ind = self._data_index_(ind)
+        a = self.grid.array(None)
+        a._data = self._data[ind]
+        return a
+        
+    def __setitem__(self, ind, a):
+        ind = self._data_index_(ind)
+        if isinstance(a, psarray):
+            assert a.nx == self.nx and a.ny == self.ny
+            self._data[ind] = a._data
+        elif isinstance(a, numbers.Number):
+            self._data[ind] = a
+        elif isinstance(a, np.ndarray):
+            self._data[ind] = a
+
+
+# =============================================================================#
+#                                 array operations                             #
+# =============================================================================#
+
 def empty_like(a):
-    b = array2d(a.nx, a.ny, None)
+    b = a.grid.array(None)
     b._data = np.empty((a.nx, a.ny) + a.shape)
     return b
 
 def exp(x):
-    if isinstance(x, array2d):
+    if isinstance(x, psarray):
         y = empty_like(x)
         y._data[:] = np.exp(x._data)
         return y
@@ -101,7 +244,7 @@ def exp(x):
         return np.exp(x)
 
 def sqrt(x):
-    if isinstance(x, array2d):
+    if isinstance(x, psarray):
         y = empty_like(x)
         y._data[:] = np.sqrt(x._data)
         return y
@@ -144,5 +287,7 @@ def transpose(x, axes=None):
 
 
 if __name__ == '__main__':
-    a = array2d(2,2,lambda i,j : [[i,j], [i,j]])
+    G = grid2d(2,2)
+    a = G.array(lambda i,j : [[i,j], [i,j]])
     b = exp(a)
+
