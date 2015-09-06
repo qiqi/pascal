@@ -241,6 +241,13 @@ class psarray(object):
         elif isinstance(a, np.ndarray):
             self._data[ind] = a
 
+    # ---------------------------------------------------------------------#
+    #                           input / output                             #
+    # ---------------------------------------------------------------------#
+
+    def save(self, filename):
+        np.save(filename, self._data)
+
 
 # =============================================================================#
 #                                 array operations                             #

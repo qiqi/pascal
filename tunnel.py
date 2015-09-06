@@ -21,15 +21,15 @@ c0 = sqrt(gamma * R * T0)
 u0 = c0 * M0
 w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
-Lx, Ly = 25., 5.
-dx = dy = 0.25
+Lx, Ly = 25., 10.
+dx = dy = 0.1
 dt = dx / c0 * 0.5
 grid = grid2d(int(Lx / dx), int(Ly / dy))
 
 x = grid.array(lambda i,j: (i + 0.5) * dx -0.2 * Lx)
 y = grid.array(lambda i,j: (j + 0.5) * dy -0.5 * Ly)
 
-obstacle = exp(-(x**2 + y**2)**8)
+obstacle = exp(-((x**2 + y**2) / 1)**8)
 
 dc = cos((x / Lx + 0.2) * pi)**64
 
@@ -136,15 +136,16 @@ print(ddt_conserved(w, rhs(w)))
 
 print(conserved(w))
 
-figure(figsize=(18,10))
+figure(figsize=(28,10))
 for iplot in range(5000):
-    nStepPerPlot = 500
+    nStepPerPlot = 1000
     for istep in range(nStepPerPlot):
         dw0 = -dt * rhs(w)
         dw1 = -dt * rhs(w + 0.5 * dw0)
         dw2 = -dt * rhs(w + 0.5 * dw1)
         dw3 = -dt * rhs(w + dw2)
         w += (dw0 + dw3) / 6 + (dw1 + dw2) / 3
+    w.save('w{0:06d}.npy'.format(iplot))
     print(r'<br>')
     print(conserved(w))
     r, ru, rv, p = w
