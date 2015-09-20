@@ -1,5 +1,7 @@
 import numbers
+import itertools
 import numpy as np
+import theano.tensor as T
 
 #==============================================================================#
 #                                 grid2d class                                 #
@@ -12,6 +14,9 @@ class grid2d(object):
 
         self._nx = int(nx)
         self._ny = int(ny)
+
+        self._i = T.lmatrix()
+        self._j = T.lmatrix()
 
     @property
     def nx(self):
@@ -67,14 +72,20 @@ class psarray(object):
         assert grid.ny > 0
 
         if init_func:
-            j, i = np.meshgrid(np.arange(self.ny), np.arange(self.nx))
-            data = np.array(init_func(i, j))
+            raw_data = np.array(init_func(grid._i, grid._j))
+            self._shape = raw_data.shape
 
-            # roll the last two axes, i and j, to the first two
-            data = np.rollaxis(data, -1)
-            data = np.rollaxis(data, -1)
+            # rollaxis
+            while raw_data.ndim > 0:
+                new_shape = raw_data.shape[1:]
+                new_data = []
+                for i in itertools.product(*(range(n) for n in new_shape)):
+                    ds = raw_data[(slice(None),) + i]
+                    ds = [T.shape_padright(d.astype('float64')) for d in ds]
+                    new_data.append(T.concatenate(ds, axis=-1))
+                raw_data = np.array(new_data).reshape(new_shape)
 
-            self._data = np.array(data, dtype=np.float64, order='C')
+            self._data = new_data[0]
 
     # -------------------------------------------------------------------- #
     #                           size information                           #
@@ -82,7 +93,7 @@ class psarray(object):
 
     @property
     def shape(self):
-        return self._data.shape[2:]
+        return self._shape
 
     @property
     def size(self):
