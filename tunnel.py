@@ -7,6 +7,7 @@ import time
 import argparse
 from pylab import *
 from psarray import *
+from psarray_theano import psc_compile_theano
 
 # ---------------------------------------------------------------------------- #
 #                                 PROBLEM SET UP                               #
@@ -29,7 +30,7 @@ grid = grid2d(int(Lx / dx), int(Ly / dy))
 x = grid.array(lambda i,j: (i + 0.5) * dx -0.2 * Lx)
 y = grid.array(lambda i,j: (j + 0.5) * dy -0.5 * Ly)
 
-obstacle = exp(-((x**2 + y**2) / 1)**8)
+obstacle = grid.exp(-((x**2 + y**2) / 1)**8)
 
 dc = cos((x / Lx + 0.2) * pi)**64
 
@@ -62,7 +63,7 @@ def rhs(w):
     energy = gamma * (diffx(p * u) + diffy(p * v)) \
            - (gamma - 1) * (u * diffx(p) + v * diffy(p))
 
-    one = np.ones(r.shape)
+    one = grid.ones(r.shape)
     dissipation_r = dissipation(one, r*r, DISS_COEFF) * c0 / dx
     dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
     dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
@@ -136,7 +137,7 @@ print(ddt_conserved(w, rhs(w)))
 
 print(conserved(w))
 
-@psc_compile
+@psc_compile_theano
 def step(w):
     dw0 = -dt * rhs(w)
     dw1 = -dt * rhs(w + 0.5 * dw0)
@@ -147,9 +148,9 @@ def step(w):
 figure(figsize=(28,10))
 for iplot in range(5000):
     nStepPerPlot = 1000
-    w = step.iterate(nStepPerPlot, w)
-    # for istep in range(nStepPerPlot):
-    #     w = step(w)
+    # w = step.iterate(nStepPerPlot, w)
+    for istep in range(nStepPerPlot):
+        w = step(w)
     w.save('w{0:06d}.npy'.format(iplot))
     print(r'<br>')
     print(conserved(w))

@@ -13,6 +13,9 @@ class grid2d(object):
         self._nx = int(nx)
         self._ny = int(ny)
 
+        # switches between numpy and theano.tensor as needed
+        self._math = np
+
     @property
     def nx(self):
         return self._nx
@@ -28,25 +31,71 @@ class grid2d(object):
     def array(self, init_func):
         return psarray(self, init_func)
 
-    def empty(self, shape):
-        a = self.array(None)
-        a._data = np.empty((self.nx, self.ny) + tuple(shape))
-        return a
-
     def zeros(self, shape):
         a = self.array(None)
-        a._data = np.zeros((self.nx, self.ny) + tuple(shape))
+        a._data = self._math.zeros((self.nx, self.ny) + tuple(shape))
         return a
 
     def ones(self, shape):
         a = self.array(None)
-        a._data = np.ones((self.nx, self.ny) + tuple(shape))
+        a._data = self._math.ones((self.nx, self.ny) + tuple(shape))
         return a
 
     def random(self, shape=()):
         a = self.array(None)
-        a._data = np.random.random((self.nx, self.ny) + tuple(shape))
+        a._data = self._math.random.random((self.nx, self.ny) + tuple(shape))
         return a
+
+    # -------------------------------------------------------------------- #
+    #                        array transformations                         #
+    # -------------------------------------------------------------------- #
+    
+    def log(self, x):
+        assert x.grid is self
+        y = empty_like(x)
+        y._data = self._math.log(x._data)
+        return y
+    
+    def exp(self, x):
+        assert x.grid is self
+        y = empty_like(x)
+        y._data[:] = self._math.exp(x._data)
+        return y
+    
+    def sin(self, x):
+        assert x.grid is self
+        y = empty_like(x)
+        y._data[:] = self._math.sin(x._data)
+        return y
+    
+    def cos(self, x):
+        assert x.grid is self
+        y = empty_like(x)
+        y._data[:] = self._math.cos(x._data)
+        return y
+    
+    def copy(self, x):
+        assert x.grid is self
+        y = empty_like(x)
+        y._data[:] = x._data
+        return y
+    
+    def ravel(self, x):
+        assert x.grid is self
+        y = empty_like(x)
+        y._data[:] = x._data
+        y._data = y._data.reshape(y.shape + (y.size,))
+        return y
+    
+    def transpose(self, x, axes=None):
+        assert x.grid is self
+        y = empty_like(x)
+        y._data[:] = x._data
+        if axes is None:
+            axes = reversed(tuple(range(x.ndim)))
+        y._data = y._data.transpose((0, 1) + tuple(i+2 for i in axes))
+        return y
+
 
     # -------------------------------------------------------------------- #
     #                            global operations                         #
@@ -91,14 +140,6 @@ class psarray(object):
     @property
     def ndim(self):
         return self._data.ndim - 2
-
-    @property
-    def nx(self):
-        return self.grid.nx
-
-    @property
-    def ny(self):
-        return self.grid.ny
 
     # -------------------------------------------------------------------- #
     #                         access spatial neighbors                     #
@@ -249,64 +290,12 @@ class psarray(object):
         np.save(filename, self._data)
 
 
-#==============================================================================#
-#                                 array operations                             #
-#==============================================================================#
+class psc_compile_numpy(object):
+    def __init__(self, function):
+        self._function = function
 
-def empty_like(a):
-    b = a.grid.array(None)
-    b._data = np.empty((a.nx, a.ny) + a.shape)
-    return b
-
-def exp(x):
-    if isinstance(x, psarray):
-        y = empty_like(x)
-        y._data[:] = np.exp(x._data)
-        return y
-    else:
-        return np.exp(x)
-
-def sqrt(x):
-    if isinstance(x, psarray):
-        y = empty_like(x)
-        y._data[:] = np.sqrt(x._data)
-        return y
-    else:
-        return np.sqrt(x)
-
-def sin(x):
-    y = empty_like(x)
-    y._data[:] = np.sin(x._data)
-    return y
-
-def cos(x):
-    y = empty_like(x)
-    y._data[:] = np.cos(x._data)
-    return y
-
-def log(x):
-    y = empty_like(x)
-    y._data[:] = np.log(x._data)
-    return y
-
-def copy(x):
-    y = empty_like(x)
-    y._data[:] = x._data
-    return y
-
-def ravel(x):
-    y = empty_like(x)
-    y._data[:] = x._data
-    y._data = y._data.reshape(y.shape + (y.size,))
-    return y
-
-def transpose(x, axes=None):
-    y = empty_like(x)
-    y._data[:] = x._data
-    if axes is None:
-        axes = reversed(tuple(range(x.ndim)))
-    y._data = y._data.transpose((0, 1) + tuple(i+2 for i in axes))
-    return y
+    def __call__(self, *args, **argv):
+        return self._function(*args, **argv)
 
 
 if __name__ == '__main__':
