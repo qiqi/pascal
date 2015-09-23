@@ -2,12 +2,12 @@ import matplotlib
 matplotlib.use('agg')
 matplotlib.interactive(False)
 
+import pdb
 import sys
 import time
 import argparse
 from pylab import *
 from psarray import *
-from psarray_theano import psc_compile_theano
 
 # ---------------------------------------------------------------------------- #
 #                                 PROBLEM SET UP                               #
@@ -23,7 +23,7 @@ u0 = c0 * M0
 w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
 Lx, Ly = 25., 10.
-dx = dy = 0.1
+dx = dy = 0.5
 dt = dx / c0 * 0.5
 grid = grid2d(int(Lx / dx), int(Ly / dy))
 
@@ -32,7 +32,7 @@ y = grid.array(lambda i,j: (j + 0.5) * dy -0.5 * Ly)
 
 obstacle = grid.exp(-((x**2 + y**2) / 1)**8)
 
-dc = cos((x / Lx + 0.2) * pi)**64
+fan = grid.cos((x / Lx + 0.2) * pi)**64
 
 # ---------------------------------------------------------------------------- #
 #                        FINITE DIFFERENCE DISCRETIZATION                      #
@@ -50,9 +50,11 @@ def dissipation(r, u, dc):
     return laplace(dc * r * r * laplace(u))
 
 def rhs(w):
+    print 'rhs'
     r, ru, rv, p = w
     u, v = ru / r, rv / r
 
+    print 'r u v p'
     mass = diffx(r * ru) + diffy(r * rv)
     momentum_x = (diffx(ru*ru) + (r*ru) * diffx(u)) / 2.0 \
                + (diffy(rv*ru) + (r*rv) * diffy(u)) / 2.0 \
@@ -63,11 +65,15 @@ def rhs(w):
     energy = gamma * (diffx(p * u) + diffy(p * v)) \
            - (gamma - 1) * (u * diffx(p) + v * diffy(p))
 
+    print 'mass mom energy'
+
     one = grid.ones(r.shape)
     dissipation_r = dissipation(one, r*r, DISS_COEFF) * c0 / dx
     dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
     dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
     dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
+
+    print 'dissipation'
 
     mass += dissipation_r
     momentum_x += dissipation_x
@@ -75,14 +81,21 @@ def rhs(w):
     energy += dissipation_p \
             - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
 
+    print 'added dissipation'
+
     rhs_w = grid.zeros(w.shape)
     rhs_w[0] = 0.5 * mass / r
     rhs_w[1] = momentum_x / r
     rhs_w[2] = momentum_y / r
     rhs_w[-1] = energy
 
-    rhs_w[1:3] += 0.1*c0 * obstacle * w[1:3]
-    rhs_w += 0.1*c0 * (w - w0) * dc
+    print 'rhs_w'
+
+    # print rhs_w.shape, rhs_w._data
+    # print w.shape, w._data
+    # print obstacle.shape, obstacle._data
+    rhs_w[1:3] += 0.1 * c0 * obstacle * w[1:3]
+    rhs_w += 0.1 * c0 * (w - w0) * fan
 
     return rhs_w
 
@@ -137,7 +150,7 @@ print(ddt_conserved(w, rhs(w)))
 
 print(conserved(w))
 
-@psc_compile_theano
+@psc_compile
 def step(w):
     dw0 = -dt * rhs(w)
     dw1 = -dt * rhs(w + 0.5 * dw0)
