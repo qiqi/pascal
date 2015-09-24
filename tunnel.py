@@ -50,11 +50,9 @@ def dissipation(r, u, dc):
     return laplace(dc * r * r * laplace(u))
 
 def rhs(w):
-    print 'rhs'
     r, ru, rv, p = w
     u, v = ru / r, rv / r
 
-    print 'r u v p'
     mass = diffx(r * ru) + diffy(r * rv)
     momentum_x = (diffx(ru*ru) + (r*ru) * diffx(u)) / 2.0 \
                + (diffy(rv*ru) + (r*rv) * diffy(u)) / 2.0 \
@@ -65,15 +63,11 @@ def rhs(w):
     energy = gamma * (diffx(p * u) + diffy(p * v)) \
            - (gamma - 1) * (u * diffx(p) + v * diffy(p))
 
-    print 'mass mom energy'
-
     one = grid.ones(r.shape)
     dissipation_r = dissipation(one, r*r, DISS_COEFF) * c0 / dx
     dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
     dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
     dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
-
-    print 'dissipation'
 
     mass += dissipation_r
     momentum_x += dissipation_x
@@ -81,19 +75,12 @@ def rhs(w):
     energy += dissipation_p \
             - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
 
-    print 'added dissipation'
-
     rhs_w = grid.zeros(w.shape)
     rhs_w[0] = 0.5 * mass / r
     rhs_w[1] = momentum_x / r
     rhs_w[2] = momentum_y / r
     rhs_w[-1] = energy
 
-    print 'rhs_w'
-
-    # print rhs_w.shape, rhs_w._data
-    # print w.shape, w._data
-    # print obstacle.shape, obstacle._data
     rhs_w[1:3] += 0.1 * c0 * obstacle * w[1:3]
     rhs_w += 0.1 * c0 * (w - w0) * fan
 
@@ -150,7 +137,7 @@ print(ddt_conserved(w, rhs(w)))
 
 print(conserved(w))
 
-@psc_compile
+# @psc_compile
 def step(w):
     dw0 = -dt * rhs(w)
     dw1 = -dt * rhs(w + 0.5 * dw0)
