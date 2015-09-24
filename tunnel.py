@@ -137,7 +137,7 @@ print(ddt_conserved(w, rhs(w)))
 
 print(conserved(w))
 
-# @psc_compile
+@psc_compile
 def step(w):
     dw0 = -dt * rhs(w)
     dw1 = -dt * rhs(w + 0.5 * dw0)
@@ -146,7 +146,7 @@ def step(w):
     return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
 figure(figsize=(28,10))
-for iplot in range(5000):
+for iplot in range(5):
     nStepPerPlot = 1000
     # w = step.iterate(nStepPerPlot, w)
     for istep in range(nStepPerPlot):

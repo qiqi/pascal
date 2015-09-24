@@ -1,10 +1,11 @@
 ################################################################################
 #                                                                              #
-#                                                                              #
+#            psarray.py copyright 2015 Qiqi Wang (qiqi.wang@gmail.com)         #
 #                                                                              #
 ################################################################################
 
 import numbers
+import unittest
 import numpy as np
 import theano
 import theano.tensor as T
@@ -43,6 +44,13 @@ class grid2d(object):
         data_shape = (self.nx, self.ny) + (1,) * ndim_insert + a.shape
         return a._data.reshape(data_shape)
 
+    def _preppend_shape(self, shape):
+        if isinstance(shape, numbers.Number):
+            shape = (shape,)
+        else:
+            shape = tuple(shape)
+        return (self.nx, self.ny) + shape
+
     # -------------------------------------------------------------------- #
     #                           array constructors                         #
     # -------------------------------------------------------------------- #
@@ -54,21 +62,24 @@ class grid2d(object):
             return psarray_theano(self, init_func)
 
     def zeros(self, shape):
+        shape = self._preppend_shape(shape)
         a = self.array(None)
-        a._data = self._math.zeros((self.nx, self.ny) + tuple(shape))
-        a.shape = shape
+        a.shape = shape[2:]
+        a._data = self._math.zeros(shape)
         return a
 
     def ones(self, shape):
+        shape = self._preppend_shape(shape)
         a = self.array(None)
-        a._data = self._math.ones((self.nx, self.ny) + tuple(shape))
-        a.shape = shape
+        a.shape = shape[2:]
+        a._data = self._math.ones(shape)
         return a
 
     def random(self, shape=()):
+        shape = self._preppend_shape(shape)
         a = self.array(None)
-        a._data = self._math.random.random((self.nx, self.ny) + tuple(shape))
-        a.shape = shape
+        a.shape = shape[2:]
+        a._data = self._math.random.random(shape)
         return a
 
     # -------------------------------------------------------------------- #
@@ -410,6 +421,10 @@ class psarray_theano(psarray_base):
             T.set_subtensor(self._data[ind], a)
 
 
+#==============================================================================#
+#                             theano compilation                               #
+#==============================================================================#
+
 class psc_compile(object):
     def __init__(self, function):
         self._function = function
@@ -427,7 +442,6 @@ class psc_compile(object):
         return ret
 
     def compile(self, u_np, *args, **kargs):
-        print('entering compile')
         grid = u_np.grid
         grid_math = grid._math
         grid._math = T
@@ -437,19 +451,31 @@ class psc_compile(object):
         u_theano._data = T.TensorType('float64', (False,) * tensor_dim)()
         u_theano.shape = u_np.shape
 
-        print('function running in theano mode')
         ret = self._function(u_theano, *args, **kargs)
-        print('function finished in theano mode')
         f = theano.function([u_theano._data], ret._data)
-        print('function compiled')
 
         grid._math = grid_math
         return f
 
 
-if __name__ == '__main__':
-    G = grid2d(2,2)
-    a = G.array(lambda i,j : [[i,j], [i,j]])
-    b = exp(a)
+#==============================================================================#
+#                                  unit tests                                  #
+#==============================================================================#
 
+class _MathOps(unittest.TestCase):
+    def testAdd(self):
+        G = grid2d(8,8)
+        func = lambda a, b : a + b
+        x = G.ones(3)
+        y = G.ones(3)
+        z0 = func(x, y)
+        z1 = psc_compile(func)(x, y)
+        self.assertAlmostEqual(0, np.abs((z0 - z1)._data).sum())
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+################################################################################
+################################################################################
 ################################################################################
