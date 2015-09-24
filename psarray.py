@@ -246,8 +246,12 @@ class psarray_base(object):
                     + self.grid._data_ndim(a, ndim)
             y.shape = (np.zeros(self.shape) + np.zeros(a.shape)).shape
         else:
+            if 'ndim' in a:
+                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
+            else:
+                data = self._data
             y = self.grid.array(None)
-            y._data = self._data + a
+            y._data = data + a
             y.shape = (np.zeros(self.shape) + a).shape
         return y
 
@@ -270,8 +274,12 @@ class psarray_base(object):
                     * self.grid._data_ndim(a, ndim)
             y.shape = (np.zeros(self.shape) * np.zeros(a.shape)).shape
         else:
+            if 'ndim' in a:
+                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
+            else:
+                data = self._data
             y = self.grid.array(None)
-            y._data = self._data * a
+            y._data = data * a
             y.shape = (np.zeros(self.shape) * a).shape
         return y
 
@@ -288,9 +296,35 @@ class psarray_base(object):
                     / self.grid._data_ndim(a, ndim)
             y.shape = (np.zeros(self.shape) / np.ones(a.shape)).shape
         else:
+            if 'ndim' in a:
+                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
+            else:
+                data = self._data
             y = self.grid.array(None)
-            y._data = self._data / a
+            y._data = data / a
             y.shape = (np.zeros(self.shape) / a).shape
+        return y
+
+    def __rdiv__(self, a):
+        return self.__rtruediv__(a)
+
+    def __rtruediv__(self, a):
+        if isinstance(a, psarray_base):
+            assert a.grid is self.grid
+            ndim = max(a.ndim, self.ndim)
+
+            y = self.grid.array(None)
+            y._data = self.grid._data_ndim(a, ndim) \
+                    / self.grid._data_ndim(self, ndim)
+            y.shape = (np.ones(a.shape) / np.zeros(self.shape)).shape
+        else:
+            if 'ndim' in a:
+                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
+            else:
+                data = self._data
+            y = self.grid.array(None)
+            y._data = a / data
+            y.shape = (a / np.zeros(self.shape)).shape
         return y
 
     def __pow__(self, a):
@@ -303,8 +337,12 @@ class psarray_base(object):
                     ** self.grid._data_ndim(a, ndim)
             y.shape = (np.ones(self.shape) ** np.ones(a.shape)).shape
         else:
+            if 'ndim' in a:
+                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
+            else:
+                data = self._data
             y = self.grid.array(None)
-            y._data = self._data ** a
+            y._data = data ** a
             y.shape = (np.ones(self.shape) ** a).shape
         return y
 
@@ -463,14 +501,42 @@ class psc_compile(object):
 #==============================================================================#
 
 class _MathOps(unittest.TestCase):
-    def testAdd(self):
+    def _testOp(self, func, x_shp):
         G = grid2d(8,8)
-        func = lambda a, b : a + b
-        x = G.ones(3)
-        y = G.ones(3)
-        z0 = func(x, y)
-        z1 = psc_compile(func)(x, y)
-        self.assertAlmostEqual(0, np.abs((z0 - z1)._data).sum())
+        x = G.ones(x_shp)
+        y0 = func(x)
+        y1 = psc_compile(func)(x)
+        y_data = func(x._data)
+        self.assertAlmostEqual(0, np.abs((y0 - y1)._data).sum())
+        self.assertAlmostEqual(0, np.abs(y0._data - y_data).sum())
+
+    def testAdd(self):
+        self._testOp(lambda x : x + np.ones(3), 3)
+        self._testOp(lambda x : np.ones(3) + x, 3)
+        self._testOp(lambda x : np.ones([4,2,3]) + x + np.ones([3]), [2,3])
+        self._testOp(lambda x : 1 + x, 3)
+        self._testOp(lambda x : x + 1, 3)
+
+    def testSub(self):
+        self._testOp(lambda x : x - np.ones(3), 3)
+        self._testOp(lambda x : np.ones(3) - x, 3)
+        self._testOp(lambda x : 1 - x, 3)
+        self._testOp(lambda x : x - 1, 3)
+
+    def testMul(self):
+        self._testOp(lambda x : x * np.ones(3), 3)
+        self._testOp(lambda x : np.ones(3) * x, 3)
+        self._testOp(lambda x : 1 * x, 3)
+        self._testOp(lambda x : x * 1, 3)
+
+    def testDiv(self):
+        self._testOp(lambda x : x / np.ones(3), 3)
+        self._testOp(lambda x : np.ones(3) / x, 3)
+        self._testOp(lambda x : 1 / x, 3)
+        self._testOp(lambda x : x / 1, 3)
+
+
+# ---------------------------------------------------------------------------- #
 
 if __name__ == '__main__':
     unittest.main()
