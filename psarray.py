@@ -10,6 +10,8 @@ import numpy as np
 import theano
 import theano.tensor as T
 
+_VERBOSE_ = False
+
 #==============================================================================#
 #                                 grid2d class                                 #
 #==============================================================================#
@@ -157,6 +159,9 @@ class psarray_base(object):
         assert grid.nx > 0
         assert grid.ny > 0
 
+    def copy(self):
+        return self.grid.copy(self)
+
     # -------------------------------------------------------------------- #
     #                           size information                           #
     # -------------------------------------------------------------------- #
@@ -246,7 +251,7 @@ class psarray_base(object):
                     + self.grid._data_ndim(a, ndim)
             y.shape = (np.zeros(self.shape) + np.zeros(a.shape)).shape
         else:
-            if 'ndim' in a:
+            if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
             else:
                 data = self._data
@@ -274,7 +279,7 @@ class psarray_base(object):
                     * self.grid._data_ndim(a, ndim)
             y.shape = (np.zeros(self.shape) * np.zeros(a.shape)).shape
         else:
-            if 'ndim' in a:
+            if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
             else:
                 data = self._data
@@ -296,7 +301,7 @@ class psarray_base(object):
                     / self.grid._data_ndim(a, ndim)
             y.shape = (np.zeros(self.shape) / np.ones(a.shape)).shape
         else:
-            if 'ndim' in a:
+            if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
             else:
                 data = self._data
@@ -318,7 +323,7 @@ class psarray_base(object):
                     / self.grid._data_ndim(self, ndim)
             y.shape = (np.ones(a.shape) / np.zeros(self.shape)).shape
         else:
-            if 'ndim' in a:
+            if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
             else:
                 data = self._data
@@ -337,7 +342,7 @@ class psarray_base(object):
                     ** self.grid._data_ndim(a, ndim)
             y.shape = (np.ones(self.shape) ** np.ones(a.shape)).shape
         else:
-            if 'ndim' in a:
+            if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
             else:
                 data = self._data
@@ -454,9 +459,9 @@ class psarray_theano(psarray_base):
         ind = self._data_index_(ind)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
-            T.set_subtensor(self._data[ind], a._data)
+            self._data = T.set_subtensor(self._data[ind], a._data)
         else:
-            T.set_subtensor(self._data[ind], a)
+            self._data = T.set_subtensor(self._data[ind], a)
 
 
 #==============================================================================#
@@ -475,7 +480,9 @@ class psc_compile(object):
         if not self._compiled_function:
             self._compiled_function = self.compile(u, *args, **kargs)
         ret = u.grid.array(None)
+        if _VERBOSE_: print('evaluating compiled function')
         ret._data = self._compiled_function(u._data)
+        if _VERBOSE_: print('compiled function evaluated')
         ret.shape = ret._data.shape[2:]
         return ret
 
@@ -484,13 +491,18 @@ class psc_compile(object):
         grid_math = grid._math
         grid._math = T
 
-        u_theano = grid.array(None)
         tensor_dim = u_np.ndim + 2
-        u_theano._data = T.TensorType('float64', (False,) * tensor_dim)()
+        input_data = T.TensorType('float64', (False,) * tensor_dim)()
+
+        u_theano = grid.array(None)
+        u_theano._data = input_data.copy()
         u_theano.shape = u_np.shape
 
         ret = self._function(u_theano, *args, **kargs)
-        f = theano.function([u_theano._data], ret._data)
+
+        if _VERBOSE_: print('function evaluated in theano mode, compiling')
+        f = theano.function([input_data], ret._data)
+        if _VERBOSE_: print('function sucessfully compiled')
 
         grid._math = grid_math
         return f
@@ -501,44 +513,73 @@ class psc_compile(object):
 #==============================================================================#
 
 class _MathOps(unittest.TestCase):
+    def __init__(self, *args, **kargs):
+        unittest.TestCase.__init__(self, *args, **kargs)
+        self.G = grid2d(8,8)
+
     def _testOp(self, func, x_shp):
-        G = grid2d(8,8)
-        x = G.ones(x_shp)
+        x = self.G.ones(x_shp)
         y0 = func(x)
         y1 = psc_compile(func)(x)
-        y_data = func(x._data)
         self.assertAlmostEqual(0, np.abs((y0 - y1)._data).sum())
-        self.assertAlmostEqual(0, np.abs(y0._data - y_data).sum())
 
     def testAdd(self):
-        self._testOp(lambda x : x + np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) + x, 3)
-        self._testOp(lambda x : np.ones([4,2,3]) + x + np.ones([3]), [2,3])
         self._testOp(lambda x : 1 + x, 3)
         self._testOp(lambda x : x + 1, 3)
 
+        self._testOp(lambda x : x + np.ones(3), 3)
+        self._testOp(lambda x : np.ones(3) + x, 3)
+        self._testOp(lambda x : np.ones([4,2,3]) + x + np.ones([3]), [2,3])
+
+        G = self.G
+        self._testOp(lambda x : x + G.ones(3), 3)
+        self._testOp(lambda x : G.ones(3) + x, 3)
+        self._testOp(lambda x : G.ones([4,2,3]) + x + G.ones([3]), [2,3])
+
     def testSub(self):
-        self._testOp(lambda x : x - np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) - x, 3)
         self._testOp(lambda x : 1 - x, 3)
         self._testOp(lambda x : x - 1, 3)
 
+        self._testOp(lambda x : x - np.ones(3), 3)
+        self._testOp(lambda x : np.ones(3) - x, 3)
+        self._testOp(lambda x : np.ones([4,2,3]) - x - np.ones([3]), [2,3])
+
+        G = self.G
+        self._testOp(lambda x : x - G.ones(3), 3)
+        self._testOp(lambda x : G.ones(3) - x, 3)
+        self._testOp(lambda x : G.ones([4,2,3]) - x - G.ones([3]), [2,3])
+
     def testMul(self):
-        self._testOp(lambda x : x * np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) * x, 3)
         self._testOp(lambda x : 1 * x, 3)
         self._testOp(lambda x : x * 1, 3)
 
+        self._testOp(lambda x : x * np.ones(3), 3)
+        self._testOp(lambda x : np.ones(3) * x, 3)
+        self._testOp(lambda x : np.ones([4,2,3]) * x * np.ones([3]), [2,3])
+
+        G = self.G
+        self._testOp(lambda x : x * G.ones(3), 3)
+        self._testOp(lambda x : G.ones(3) * x, 3)
+        self._testOp(lambda x : G.ones([4,2,3]) * x * G.ones([3]), [2,3])
+
     def testDiv(self):
-        self._testOp(lambda x : x / np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) / x, 3)
         self._testOp(lambda x : 1 / x, 3)
         self._testOp(lambda x : x / 1, 3)
+
+        self._testOp(lambda x : x / np.ones(3), 3)
+        self._testOp(lambda x : np.ones(3) / x, 3)
+        self._testOp(lambda x : np.ones([4,2,3]) / x / np.ones([3]), [2,3])
+
+        G = self.G
+        self._testOp(lambda x : x / G.ones(3), 3)
+        self._testOp(lambda x : G.ones(3) / x, 3)
+        self._testOp(lambda x : G.ones([4,2,3]) / x / G.ones([3]), [2,3])
 
 
 # ---------------------------------------------------------------------------- #
 
 if __name__ == '__main__':
+    # _VERBOSE_ = True
     unittest.main()
 
 
