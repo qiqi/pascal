@@ -512,7 +512,7 @@ class psc_compile(object):
 #                                  unit tests                                  #
 #==============================================================================#
 
-class _MathOps(unittest.TestCase):
+class _OpTest(unittest.TestCase):
     def __init__(self, *args, **kargs):
         unittest.TestCase.__init__(self, *args, **kargs)
         self.G = grid2d(8,8)
@@ -523,6 +523,8 @@ class _MathOps(unittest.TestCase):
         y1 = psc_compile(func)(x)
         self.assertAlmostEqual(0, np.abs((y0 - y1)._data).sum())
 
+
+class _MathOps(_OpTest):
     def testAdd(self):
         self._testOp(lambda x : 1 + x, 3)
         self._testOp(lambda x : x + 1, 3)
@@ -575,6 +577,16 @@ class _MathOps(unittest.TestCase):
         self._testOp(lambda x : G.ones(3) / x, 3)
         self._testOp(lambda x : G.ones([4,2,3]) / x / G.ones([3]), [2,3])
 
+
+class _Indexing(_OpTest):
+    def testGet(self):
+        self._testOp(lambda x : x[2], (3,))
+        self._testOp(lambda x : x[:], (3,))
+        self._testOp(lambda x : x[:,0], (3, 4))
+        self._testOp(lambda x : x[:,:2], (3, 4))
+        self._testOp(lambda x : x[:-2,2:2:2], (3, 4))
+        self._testOp(lambda x : x[np.newaxis,:-2,2:2:2], (3, 4))
+        self._testOp(lambda x : x[:-2,np.newaxis,2:2:2], (3, 4))
 
 # ---------------------------------------------------------------------------- #
 
