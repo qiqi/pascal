@@ -472,6 +472,7 @@ class psc_compile(object):
     def __init__(self, function):
         self._function = function
         self._compiled_function = None
+        self._compiled_adjoint = None
 
     def __call__(self, u, *args, **kargs):
         if isinstance(u, psarray_theano):
@@ -485,6 +486,17 @@ class psc_compile(object):
         if _VERBOSE_: print('compiled function evaluated')
         ret.shape = ret._data.shape[2:]
         return ret
+
+    def adjoint(self, out_adj, u, *args, **kargs):
+        assert isinstance(u, psarray_numpy)
+        if not self._compiled_adjoint:
+            self._compiled_adjoint = self.compile_adjoint(u, *args, **kargs)
+        in_adj = u.grid.array(None)
+        if _VERBOSE_: print('evaluating compiled function')
+        in_adj._data = self._compiled_adjoint(out_adj._data, u._data)
+        if _VERBOSE_: print('compiled function evaluated')
+        in_adj.shape = in_adj._data.shape[2:]
+        return in_adj
 
     def compile(self, u_np, *args, **kargs):
         grid = u_np.grid
@@ -503,6 +515,32 @@ class psc_compile(object):
         if _VERBOSE_: print('function evaluated in theano mode, compiling')
         f = theano.function([input_data], ret._data)
         if _VERBOSE_: print('function sucessfully compiled')
+
+        grid._math = grid_math
+        return f
+
+    def compile_adjoint(self, u_np, *args, **kargs):
+        grid = u_np.grid
+        grid_math = grid._math
+        grid._math = T
+
+        tensor_dim = u_np.ndim + 2
+        input_data = T.TensorType('float64', (False,) * tensor_dim)()
+
+        u_theano = grid.array(None)
+        u_theano._data = input_data.copy()
+        u_theano.shape = u_np.shape
+
+        ret = self._function(u_theano, *args, **kargs)
+
+        tensor_dim = ret.ndim + 2
+        ret_adjoint = T.TensorType('float64', (False,) * tensor_dim)()
+        J = (ret._data * ret_adjoint).sum()
+        input_adjoint = T.grad(J, input_data)
+
+        if _VERBOSE_: print('adjoint derived in theano mode, compiling')
+        f = theano.function([ret_adjoint, input_data], input_adjoint)
+        if _VERBOSE_: print('adjoint sucessfully compiled')
 
         grid._math = grid_math
         return f
@@ -587,6 +625,20 @@ class _Indexing(_OpTest):
         self._testOp(lambda x : x[:-2,2:2:2], (3, 4))
         self._testOp(lambda x : x[np.newaxis,:-2,2:2:2], (3, 4))
         self._testOp(lambda x : x[:-2,np.newaxis,2:2:2], (3, 4))
+
+
+class _Adjoint(_OpTest):
+    def testSimple(self):
+        x = self.G.ones(3) * 2
+        a = self.G.ones(3) * 5
+
+        f = psc_compile(lambda x : x * x)
+        g = f.adjoint(a, x)
+        self.assertAlmostEqual(0, np.linalg.norm((g - a * x * 2)._data))
+
+        f = psc_compile(lambda x : self.G.exp(x))
+        g = f.adjoint(a, x)
+        self.assertAlmostEqual(0, np.linalg.norm((g - a * self.G.exp(x))._data))
 
 # ---------------------------------------------------------------------------- #
 
