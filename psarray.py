@@ -481,9 +481,7 @@ class psc_compile(object):
         if not self._compiled_function:
             self._compiled_function = self.compile(u, *args, **kargs)
         ret = u.grid.array(None)
-        if _VERBOSE_: print('evaluating compiled function')
         ret._data = self._compiled_function(u._data)
-        if _VERBOSE_: print('compiled function evaluated')
         ret.shape = ret._data.shape[2:]
         return ret
 
@@ -492,9 +490,7 @@ class psc_compile(object):
         if not self._compiled_adjoint:
             self._compiled_adjoint = self.compile_adjoint(u, *args, **kargs)
         in_adj = u.grid.array(None)
-        if _VERBOSE_: print('evaluating compiled function')
         in_adj._data = self._compiled_adjoint(out_adj._data, u._data)
-        if _VERBOSE_: print('compiled function evaluated')
         in_adj.shape = in_adj._data.shape[2:]
         return in_adj
 
