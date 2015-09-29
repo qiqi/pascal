@@ -30,7 +30,7 @@ grid = grid2d(int(Lx / dx), int(Ly / dy))
 x = grid.array(lambda i,j: (i + 0.5) * dx -0.2 * Lx)
 y = grid.array(lambda i,j: (j + 0.5) * dy -0.5 * Ly)
 
-obstacle = grid.exp(-((x**2 + y**2) / 1)**8)
+obstacle = grid.exp(-((x**2 + y**2) / 1)**64)
 
 fan = grid.cos((x / Lx + 0.2) * pi)**64
 
