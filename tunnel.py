@@ -23,7 +23,7 @@ u0 = c0 * M0
 w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
 Lx, Ly = 25., 10.
-dx = dy = 0.5
+dx = dy = 0.125
 dt = dx / c0 * 0.5
 grid = grid2d(int(Lx / dx), int(Ly / dy))
 
@@ -86,6 +86,11 @@ def rhs(w):
 
     return rhs_w
 
+
+def force(w):
+    return grid.sum(0.1 * c0 * obstacle * w[1:3])
+
+
 # ---------------------------------------------------------------------------- #
 #                              TESTS FOR CONSERVATION                          #
 # ---------------------------------------------------------------------------- #
@@ -133,9 +138,9 @@ else:
     w = load(args.restart)
     assert w.shape == (Nx, Ny, 4)
 
-print(ddt_conserved(w, rhs(w)))
+# print(ddt_conserved(w, rhs(w)))
 
-print(conserved(w))
+# print(conserved(w))
 
 @psc_compile
 def step(w):
@@ -146,14 +151,15 @@ def step(w):
     return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
 figure(figsize=(28,10))
-for iplot in range(5):
-    nStepPerPlot = 1000
-    # w = step.iterate(nStepPerPlot, w)
-    for istep in range(nStepPerPlot):
-        w = step(w)
+for iplot in range(5000):
+    nPrintsPerPlot = 500
+    for iprint in range(nPrintsPerPlot):
+        nStepPerPrint = 20
+        for istep in range(nStepPerPrint):
+            w = step(w)
+        print('%f %f' % tuple(force(w)))
+        sys.stdout.flush()
     w.save('w{0:06d}.npy'.format(iplot))
-    print(r'<br>')
-    print(conserved(w))
     r, ru, rv, p = w
     rho, u, v = r * r, ru / r, rv / r
     clf()
