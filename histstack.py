@@ -5,6 +5,7 @@
 ################################################################################
 
 import math
+import unittest
 import collections
 
 class _CheckPoint(object):
@@ -52,8 +53,8 @@ class HistoryStack(object):
         self._lvl0stack.append(_CheckPoint(self.i_step + 1, x))
 
     def _recalculate(self, to_i_step):
-        n_steps = to_i_step - 1 - self._lvl1stack[-1].i_step
-        assert n_steps < self._lvl1stack.maxlen
+        n_steps = to_i_step - self._lvl1stack[-1].i_step
+        assert n_steps <= self._lvl1stack.maxlen
         x = self._lvl1stack[-1].x
         for i in range(n_steps):
             x = self._step_function(x)
@@ -77,3 +78,35 @@ class HistoryStack(object):
             self.push(x)
             x = self._step_function(x)
 
+
+#==============================================================================#
+#                                  unit tests                                  #
+#==============================================================================#
+
+class _Adjoint(unittest.TestCase):
+    def testRewind10000(self):
+        N = 10000
+        hist = HistoryStack(N, lambda i : i + 1)
+        for i in range(N):
+            hist.push(i)
+        for i in reversed(range(N)):
+            self.assertEqual(i, hist.pop())
+
+    def testRewind1000(self):
+        N = 1000
+        hist = HistoryStack(N, lambda i : i + 1)
+        for i in range(N):
+            hist.push(i)
+        for i in reversed(range(N)):
+            self.assertEqual(i, hist.pop())
+
+# ---------------------------------------------------------------------------- #
+
+if __name__ == '__main__':
+    # _VERBOSE_ = True
+    unittest.main()
+
+
+################################################################################
+################################################################################
+################################################################################
