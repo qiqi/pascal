@@ -6,14 +6,19 @@ import pdb
 import sys
 import time
 import argparse
+
 from pylab import *
+
 import psarray
+import histstack
+
+psarray._VERBOSE_ = True
 
 # ---------------------------------------------------------------------------- #
 #                                 PROBLEM SET UP                               #
 # ---------------------------------------------------------------------------- #
 
-DISS_COEFF = 0.0025
+DISS_COEFF = 0.02
 gamma, R = 1.4, 287.
 T0, p0, M0 = 300., 101325., 0.05
 
@@ -22,17 +27,17 @@ c0 = sqrt(gamma * R * T0)
 u0 = c0 * M0
 w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
-Lx, Ly = 25., 10.
-dx = dy = 0.050
+Lx, Ly = 40., 10.
+dx = dy = 0.2
 dt = dx / c0 * 0.5
 grid = psarray.grid2d(int(Lx / dx), int(Ly / dy))
 
-x = grid.array(lambda i,j: (i + 0.5) * dx -0.2 * Lx)
+x = grid.array(lambda i,j: (i + 0.5) * dx -0.5 * Lx)
 y = grid.array(lambda i,j: (j + 0.5) * dy -0.5 * Ly)
 
-obstacle = grid.exp(-((x**2 + y**2) / 1)**64)
+obstacle = grid.exp(-((x**2 + y**2) / 1)**32)
 
-fan = grid.cos((x / Lx + 0.2) * pi)**64
+fan = grid.cos((x / Lx + 0.5) * pi)**64
 
 # ---------------------------------------------------------------------------- #
 #                        FINITE DIFFERENCE DISCRETIZATION                      #
@@ -70,10 +75,11 @@ def rhs(w):
     dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
 
     mass += dissipation_r
+    energy += dissipation_p
+
     momentum_x += dissipation_x
     momentum_y += dissipation_y
-    energy += dissipation_p \
-            - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
+    energy -= (gamma - 1) * (u * dissipation_x + v * dissipation_y)
 
     rhs_w = grid.zeros(w.shape)
     rhs_w[0] = 0.5 * mass / r
@@ -122,7 +128,6 @@ def ddt_conserved(w, rhs_w):
     ddt_energy = grid.sum(ddt_p / (gamma - 1) + 0.5 * (ddt_rhou2 + ddt_rhov2))
     return ddt_mass, ddt_momentum_x, ddt_momentum_y, ddt_energy
 
-
 # ---------------------------------------------------------------------------- #
 #                                 MAIN PROGRAM                                 #
 # ---------------------------------------------------------------------------- #
@@ -148,11 +153,17 @@ def step(w):
     return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
 figure(figsize=(28,10))
-for iplot in range(5000):
-    nPrintsPerPlot = 500
+
+history = histstack.HistoryStack(1000, step)
+nPrintsPerPlot = 20
+nStepPerPrint = 20
+
+# ------------------------------- primal ------------------------------------- #
+
+for iplot in range(1000):
     for iprint in range(nPrintsPerPlot):
-        nStepPerPrint = 20
         for istep in range(nStepPerPrint):
+            history.push(w)
             w = step(w)
         print('%f %f' % tuple(force(w)))
         sys.stdout.flush()
@@ -168,3 +179,21 @@ for iplot in range(5000):
     axis('scaled'); colorbar()
     savefig('fig{0:06d}.png'.format(iplot))
 
+# ------------------------------- adjoint ------------------------------------ #
+
+a = grid.zeros(w.shape)
+
+while len(history):
+    for iprint in range(nPrintsPerPlot):
+        for istep in range(nStepPerPrint):
+            a[1] += 0.1 * c0 * obstacle
+            w = history.pop()
+            a = step.adjoint(a, w)
+    a.save('a{0:06d}.npy'.format(iplot))
+    clf()
+    subplot(2,1,1); contourf(x._data.T, y._data.T, a[0]._data.T, 200);
+    axis('scaled'); colorbar()
+    subplot(2,1,2); contourf(x._data.T, y._data.T, a[1]._data.T, 200);
+    axis('scaled'); colorbar()
+    savefig('adj{0:06d}.png'.format(iplot))
+    iplot -= 1
