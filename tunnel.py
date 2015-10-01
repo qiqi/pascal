@@ -91,6 +91,15 @@ def force(w):
     return grid.sum(0.1 * c0 * obstacle * w[1:3])
 
 
+@psarray.psc_compile
+def step(w):
+    dw0 = -dt * rhs(w)
+    dw1 = -dt * rhs(w + 0.5 * dw0)
+    dw2 = -dt * rhs(w + 0.5 * dw1)
+    dw3 = -dt * rhs(w + dw2)
+    return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
+
+
 # ---------------------------------------------------------------------------- #
 #                              TESTS FOR CONSERVATION                          #
 # ---------------------------------------------------------------------------- #
@@ -121,50 +130,4 @@ def ddt_conserved(w, rhs_w):
     ddt_momentum_y = grid.sum(ddt_rhov)
     ddt_energy = grid.sum(ddt_p / (gamma - 1) + 0.5 * (ddt_rhou2 + ddt_rhov2))
     return ddt_mass, ddt_momentum_x, ddt_momentum_y, ddt_energy
-
-
-# ---------------------------------------------------------------------------- #
-#                                 MAIN PROGRAM                                 #
-# ---------------------------------------------------------------------------- #
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--restart', type=str, default='')
-args = parser.parse_args()
-
-if len(args.restart) == 0:
-    w = grid.zeros([4]) + w0
-    w[:] *= 1 + 0.01 * (grid.random() - 0.5)
-else:
-    print('restarting from ', args.restart)
-    w = load(args.restart)
-    assert w.shape == (Nx, Ny, 4)
-
-@psarray.psc_compile
-def step(w):
-    dw0 = -dt * rhs(w)
-    dw1 = -dt * rhs(w + 0.5 * dw0)
-    dw2 = -dt * rhs(w + 0.5 * dw1)
-    dw3 = -dt * rhs(w + dw2)
-    return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
-
-figure(figsize=(28,10))
-for iplot in range(5000):
-    nPrintsPerPlot = 500
-    for iprint in range(nPrintsPerPlot):
-        nStepPerPrint = 20
-        for istep in range(nStepPerPrint):
-            w = step(w)
-        print('%f %f' % tuple(force(w)))
-        sys.stdout.flush()
-    w.save('w{0:06d}.npy'.format(iplot))
-    r, ru, rv, p = w
-    rho, u, v = r * r, ru / r, rv / r
-    clf()
-    u_range = linspace(-u0, u0 * 2, 100)
-    subplot(2,1,1); contourf(x._data.T, y._data.T, u._data.T, u_range);
-    axis('scaled'); colorbar()
-    v_range = linspace(-u0, u0, 100)
-    subplot(2,1,2); contourf(x._data.T, y._data.T, v._data.T, v_range);
-    axis('scaled'); colorbar()
-    savefig('fig{0:06d}.png'.format(iplot))
 

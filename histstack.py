@@ -14,6 +14,7 @@ class _CheckPoint(object):
 
 class HistoryStack(object):
     def __init__(self, capacity, step_function):
+        self._capacity = capacity
         lvl0capacity = int(math.ceil(math.sqrt(capacity)))
         lvl1capacity = lvl0capacity
         self._lvl0stack = collections.deque(maxlen=lvl0capacity)
@@ -69,3 +70,10 @@ class HistoryStack(object):
         if len(self._lvl0stack) == 0 and len(self._lvl1stack) > 0:
             self._recalculate(checkpoint.i_step - 1)
         return checkpoint.x
+
+    def populate(self, x_seed):
+        x = x_seed
+        for i in range(self._capacity):
+            self.push(x)
+            x = self._step_function(x)
+

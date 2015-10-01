@@ -84,6 +84,13 @@ class grid2d(object):
         a._data = self._math.random.random(shape)
         return a
 
+    def load(self, filename):
+        assert self._math is np
+        a = self.array(None)
+        a._data = np.load(filename)
+        a.shape = a._data.shape[2:]
+        return a
+
     # -------------------------------------------------------------------- #
     #                        array transformations                         #
     # -------------------------------------------------------------------- #
