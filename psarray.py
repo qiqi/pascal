@@ -358,6 +358,13 @@ class psarray_base(object):
             y.shape = (np.ones(self.shape) ** a).shape
         return y
 
+    def sum(self, axis=None):
+        y = self.grid.array(None)
+        y._data = self._data.sum(axis)
+        y.shape = y._data.shape[2:]
+        return y
+
+
 #==============================================================================#
 #                           replace numpy operations                           #
 #==============================================================================#
