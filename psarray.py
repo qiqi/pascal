@@ -626,6 +626,7 @@ class _Indexing(_OpTest):
         self._testOp(lambda x : x[:,0], (3, 4))
         self._testOp(lambda x : x[:,:2], (3, 4))
         self._testOp(lambda x : x[:-2,2:2:2], (3, 4))
+        self._testOp(lambda x : x[:,np.newaxis] * x[np.newaxis,:], (4,))
         self._testOp(lambda x : x[np.newaxis,:-2,2:2:2], (3, 4))
         self._testOp(lambda x : x[:-2,np.newaxis,2:2:2], (3, 4))
 
