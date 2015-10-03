@@ -26,7 +26,7 @@ def orthogonalize(a):
     Linv = np.linalg.inv(L) 
     a = (a[np.newaxis,:,:] * Linv[:,:,np.newaxis]).sum(1)
 
-    return a / w0  # re-dimensionalize
+    return a / w0, L  # re-dimensionalize
 
 parser = argparse.ArgumentParser()
 parser.add_argument('nStart', type=int)
