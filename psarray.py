@@ -360,7 +360,7 @@ class psarray_base(object):
 
     def sum(self, axis=None):
         y = self.grid.array(None)
-        y._data = self._data.sum(axis)
+        y._data = self._data.sum(axis + 2)
         y.shape = y._data.shape[2:]
         return y
 
