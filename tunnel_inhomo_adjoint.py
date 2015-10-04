@@ -10,8 +10,6 @@ import argparse
 
 from pylab import *
 
-sys.path.append('..')
-import psarray
 import histstack
 
 from tunnel import *

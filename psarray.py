@@ -201,7 +201,7 @@ class psarray_base(object):
 
     def __getitem__(self, ind):
         a = self.grid.array(None)
-        a.shape = np.empty(self.shape)[ind].shape
+        a._shape = np.empty(self.shape)[ind].shape
         ind = self._data_index_(ind)
         a._data = self._data[ind]
         return a
@@ -215,28 +215,28 @@ class psarray_base(object):
     def x_p(self):
         y = self.grid.array(None)
         y._data = self.grid._math.roll(self._data, -1, axis=0)
-        y.shape = self.shape
+        y._shape = self.shape
         return y
 
     @property
     def x_m(self):
         y = self.grid.array(None)
         y._data = self.grid._math.roll(self._data, +1, axis=0)
-        y.shape = self.shape
+        y._shape = self.shape
         return y
 
     @property
     def y_p(self):
         y = self.grid.array(None)
         y._data = self.grid._math.roll(self._data, -1, axis=1)
-        y.shape = self.shape
+        y._shape = self.shape
         return y
 
     @property
     def y_m(self):
         y = self.grid.array(None)
         y._data = self.grid._math.roll(self._data, +1, axis=1)
-        y.shape = self.shape
+        y._shape = self.shape
         return y
 
     # -------------------------------------------------------------------- #
@@ -246,7 +246,7 @@ class psarray_base(object):
     def __neg__(self):
         y = self.grid.array(None)
         y._data = -self._data
-        y.shape = self.shape
+        y._shape = self.shape
         return y
 
     def __radd__(self, a):
@@ -260,7 +260,7 @@ class psarray_base(object):
             y = self.grid.array(None)
             y._data = self.grid._data_ndim(self, ndim) \
                     + self.grid._data_ndim(a, ndim)
-            y.shape = (np.zeros(self.shape) + np.zeros(a.shape)).shape
+            y._shape = (np.zeros(self.shape) + np.zeros(a.shape)).shape
         else:
             if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
@@ -268,7 +268,7 @@ class psarray_base(object):
                 data = self._data
             y = self.grid.array(None)
             y._data = data + a
-            y.shape = (np.zeros(self.shape) + a).shape
+            y._shape = (np.zeros(self.shape) + a).shape
         return y
 
     def __rsub__(self, a):
@@ -288,7 +288,7 @@ class psarray_base(object):
             y = self.grid.array(None)
             y._data = self.grid._data_ndim(self, ndim) \
                     * self.grid._data_ndim(a, ndim)
-            y.shape = (np.zeros(self.shape) * np.zeros(a.shape)).shape
+            y._shape = (np.zeros(self.shape) * np.zeros(a.shape)).shape
         else:
             if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
@@ -296,7 +296,7 @@ class psarray_base(object):
                 data = self._data
             y = self.grid.array(None)
             y._data = data * a
-            y.shape = (np.zeros(self.shape) * a).shape
+            y._shape = (np.zeros(self.shape) * a).shape
         return y
 
     def __div__(self, a):
@@ -310,7 +310,7 @@ class psarray_base(object):
             y = self.grid.array(None)
             y._data = self.grid._data_ndim(self, ndim) \
                     / self.grid._data_ndim(a, ndim)
-            y.shape = (np.zeros(self.shape) / np.ones(a.shape)).shape
+            y._shape = (np.zeros(self.shape) / np.ones(a.shape)).shape
         else:
             if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
@@ -318,7 +318,7 @@ class psarray_base(object):
                 data = self._data
             y = self.grid.array(None)
             y._data = data / a
-            y.shape = (np.zeros(self.shape) / a).shape
+            y._shape = (np.zeros(self.shape) / a).shape
         return y
 
     def __rdiv__(self, a):
@@ -332,7 +332,7 @@ class psarray_base(object):
             y = self.grid.array(None)
             y._data = self.grid._data_ndim(a, ndim) \
                     / self.grid._data_ndim(self, ndim)
-            y.shape = (np.ones(a.shape) / np.zeros(self.shape)).shape
+            y._shape = (np.ones(a.shape) / np.zeros(self.shape)).shape
         else:
             if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
@@ -340,7 +340,7 @@ class psarray_base(object):
                 data = self._data
             y = self.grid.array(None)
             y._data = a / data
-            y.shape = (a / np.zeros(self.shape)).shape
+            y._shape = (a / np.zeros(self.shape)).shape
         return y
 
     def __pow__(self, a):
@@ -351,7 +351,7 @@ class psarray_base(object):
             y = self.grid.array(None)
             y._data = self.grid._data_ndim(self, ndim) \
                     ** self.grid._data_ndim(a, ndim)
-            y.shape = (np.ones(self.shape) ** np.ones(a.shape)).shape
+            y._shape = (np.ones(self.shape) ** np.ones(a.shape)).shape
         else:
             if hasattr(a, 'ndim'):
                 data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
@@ -359,13 +359,13 @@ class psarray_base(object):
                 data = self._data
             y = self.grid.array(None)
             y._data = data ** a
-            y.shape = (np.ones(self.shape) ** a).shape
+            y._shape = (np.ones(self.shape) ** a).shape
         return y
 
     def sum(self, axis=None):
         y = self.grid.array(None)
         y._data = self._data.sum(axis + 2)
-        y.shape = y._data.shape[2:]
+        y._shape = y._data.shape[2:]
         return y
 
 
@@ -423,7 +423,7 @@ class psarray_numpy(psarray_base):
             data = np.rollaxis(data, -1)
 
             self._data = np.array(data, dtype=np.float64, order='C')
-            self.shape = self._data.shape[2:]
+            self._shape = self._data.shape[2:]
 
     # -------------------------------------------------------------------- #
     #                               indexing                               #
@@ -455,7 +455,7 @@ class psarray_theano(psarray_base):
 
         if init_func:
             raw_data = np.array(init(grid._i, grid._j))
-            self.shape = raw_data.shape
+            self._shape = raw_data.shape
 
             # rollaxis
             while raw_data.ndim > 0:
@@ -500,7 +500,7 @@ class psc_compile(object):
             self._compiled_function = self.compile(u, *args, **kargs)
         ret = u.grid.array(None)
         ret._data = self._compiled_function(u._data)
-        ret.shape = ret._data.shape[2:]
+        ret._shape = ret._data.shape[2:]
         return ret
 
     def adjoint(self, out_adj, u, *args, **kargs):
@@ -509,7 +509,7 @@ class psc_compile(object):
             self._compiled_adjoint = self.compile_adjoint(u, *args, **kargs)
         in_adj = u.grid.array(None)
         in_adj._data = self._compiled_adjoint(out_adj._data, u._data)
-        in_adj.shape = in_adj._data.shape[2:]
+        in_adj._shape = in_adj._data.shape[2:]
         return in_adj
 
     def compile(self, u_np, *args, **kargs):
@@ -522,7 +522,7 @@ class psc_compile(object):
 
         u_theano = grid.array(None)
         u_theano._data = input_data.copy()
-        u_theano.shape = u_np.shape
+        u_theano._shape = u_np.shape
 
         ret = self._function(u_theano, *args, **kargs)
 
@@ -543,7 +543,7 @@ class psc_compile(object):
 
         u_theano = grid.array(None)
         u_theano._data = input_data.copy()
-        u_theano.shape = u_np.shape
+        u_theano._shape = u_np.shape
 
         ret = self._function(u_theano, *args, **kargs)
 
@@ -628,6 +628,12 @@ class _MathOps(_OpTest):
         self._testOp(lambda x : x / G.ones(3), 3)
         self._testOp(lambda x : G.ones(3) / x, 3)
         self._testOp(lambda x : G.ones([4,2,3]) / x / G.ones([3]), [2,3])
+
+    def testUnivariate(self):
+        def test01(x):
+            x += 1
+            return x
+        self._testOp(test01, 3)
 
 
 class _Indexing(_OpTest):

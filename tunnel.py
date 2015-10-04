@@ -1,12 +1,7 @@
-import matplotlib
-matplotlib.use('agg')
-matplotlib.interactive(False)
-
 import pdb
 import sys
 import time
 import argparse
-from pylab import *
 import psarray_local as psarray
 
 # ---------------------------------------------------------------------------- #

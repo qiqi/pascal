@@ -7,7 +7,6 @@ import sys
 import time
 import argparse
 from pylab import *
-import psarray
 
 from tunnel import *
 

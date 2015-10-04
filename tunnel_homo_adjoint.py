@@ -10,7 +10,6 @@ import argparse
 
 from pylab import *
 
-import psarray
 import histstack
 
 from tunnel import *
