@@ -50,7 +50,6 @@ assert args.mAdj > 1
 
 for iplot in range(args.nStart, args.nEnd - 1, -1):
     assert os.path.exists('w{0:06d}.npy'.format(iplot))
-    assert os.path.exists('a{0:06d}-{1:03d}.npy'.format(iplot, args.mAdj))
 
 if os.path.exists('a{0:06d}-{1:03d}-i.npy'.format(iplot, args.mAdj)):
     a = grid.load('a{0:06d}-{1:03d}-i.npy'.format(iplot, args.mAdj))
