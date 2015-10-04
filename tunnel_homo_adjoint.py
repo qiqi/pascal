@@ -69,5 +69,6 @@ for iplot in range(args.nStart, args.nEnd, -1):
         axis('scaled'); colorbar()
         subplot(2,1,2); contourf(x._data.T, y._data.T, a[iAdj,2]._data.T, 200);
         axis('scaled'); colorbar()
-        savefig('adj{0:06d}-{1:03d}.png'.format(iplot - 1, args.mAdj))
+        savefig('adj{0:06d}-{1:03d}-{2:03d}.png'.format(iplot - 1,
+            args.mAdj, iAdj))
 

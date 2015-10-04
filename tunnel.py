@@ -7,7 +7,7 @@ import sys
 import time
 import argparse
 from pylab import *
-import psarray
+import psarray_local as psarray
 
 # ---------------------------------------------------------------------------- #
 #                                 PROBLEM SET UP                               #
