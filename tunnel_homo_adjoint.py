@@ -1,3 +1,9 @@
+################################################################################
+#                                                                              #
+#     tunnel_homo_adjoint.py copyright 2015 Qiqi Wang (qiqi.wang@gmail.com)    #
+#                                                                              #
+################################################################################
+
 import matplotlib
 matplotlib.use('agg')
 matplotlib.interactive(False)
@@ -21,9 +27,16 @@ def orthogonalize(a):
 
     # orthogonalize
     cov = grid.sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
+    if _VERBOSE_:
+        np.set_printoptions(precision=3, linewidth=1000)
+        print('Before orthogonalize: ', cov)
+
     L = np.linalg.cholesky(cov)
     Linv = np.linalg.inv(L) 
     a = (a[np.newaxis,:,:] * Linv[:,:,np.newaxis]).sum(1)
+
+    cov_after = grid.sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
+    if _VERBOSE_: print(' after orthogonalize: ', cov_after)
 
     return a / w0, L  # re-dimensionalize
 
@@ -71,3 +84,7 @@ for iplot in range(args.nStart, args.nEnd, -1):
         savefig('adj{0:06d}-{1:03d}-{2:03d}.png'.format(iplot - 1,
             args.mAdj, iAdj))
 
+
+################################################################################
+################################################################################
+################################################################################
