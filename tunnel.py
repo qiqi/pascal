@@ -8,6 +8,7 @@ import pdb
 import sys
 import time
 import argparse
+import numpy as np
 import psarray_local as psarray
 
 # ---------------------------------------------------------------------------- #
@@ -19,7 +20,7 @@ gamma, R = 1.4, 287.
 T0, p0, M0 = 300., 101325., 0.05
 
 rho0 = p0 / (R * T0)
-c0 = sqrt(gamma * R * T0)
+c0 = np.sqrt(gamma * R * T0)
 u0 = c0 * M0
 w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
@@ -33,7 +34,7 @@ y = grid.array(lambda i,j: (j + 0.5) * dy -0.5 * Ly)
 
 obstacle = grid.exp(-((x**2 + y**2) / 1)**64)
 
-fan = grid.cos((x / Lx + 0.2) * pi)**64
+fan = grid.cos((x / Lx + 0.2) * np.pi)**64
 
 # ---------------------------------------------------------------------------- #
 #                        FINITE DIFFERENCE DISCRETIZATION                      #

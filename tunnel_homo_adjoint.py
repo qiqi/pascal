@@ -27,7 +27,7 @@ def orthogonalize(a):
 
     # orthogonalize
     cov = grid.sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
-    if _VERBOSE_:
+    if psarray._VERBOSE_:
         np.set_printoptions(precision=3, linewidth=1000)
         print('Before orthogonalize: ', cov)
 
@@ -36,7 +36,7 @@ def orthogonalize(a):
     a = (a[np.newaxis,:,:] * Linv[:,:,np.newaxis]).sum(1)
 
     cov_after = grid.sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
-    if _VERBOSE_: print(' after orthogonalize: ', cov_after)
+    if psarray._VERBOSE_: print(' after orthogonalize: ', cov_after)
 
     return a / w0, L  # re-dimensionalize
 

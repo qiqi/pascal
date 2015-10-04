@@ -29,13 +29,13 @@ def orthogonalize_wrt(a, a_homo):
     # orthogonalize
     b = grid.sum(a[np.newaxis,:] * a_homo).sum(1) \
       / grid.sum(a_homo * a_homo).sum(1)
-    if _VERBOSE_: print('Before orthogonalize_wrt: ', b)
+    if psarray._VERBOSE_: print('Before orthogonalize_wrt: ', b)
 
     a -= (a_homo * b[:,np.newaxis]).sum(0)
 
     b_after = grid.sum(a[np.newaxis,:] * a_homo).sum(1) \
             / grid.sum(a_homo * a_homo).sum(1)
-    if _VERBOSE_: print(' after orthogonalize_wrt: ', b_after)
+    if psarray._VERBOSE_: print(' after orthogonalize_wrt: ', b_after)
 
     return a_homo / w0, b  # re-dimensionalize
 
