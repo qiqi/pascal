@@ -15,7 +15,7 @@ import psarray_local as psarray
 #                                 PROBLEM SET UP                               #
 # ---------------------------------------------------------------------------- #
 
-DISS_COEFF = 0.0025
+DISS_COEFF = 0.005
 gamma, R = 1.4, 287.
 T0, p0, M0 = 300., 101325., 0.25
 
@@ -26,7 +26,7 @@ w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
 Lx, Ly = 25., 10.
 dx = dy = 0.50
-dt = dx / c0 * 0.5
+dt = dx / c0 * 0.25
 
 grid = psarray.grid2d(int(Lx / dx), int(Ly / dy))
 
