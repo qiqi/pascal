@@ -15,7 +15,7 @@ import psarray_local as psarray
 #                                 PROBLEM SET UP                               #
 # ---------------------------------------------------------------------------- #
 
-DISS_COEFF = 0.005
+DISS_COEFF = 0.01
 gamma, R = 1.4, 287.
 T0, p0, M0 = 300., 101325., 0.25
 
@@ -25,7 +25,7 @@ u0 = c0 * M0
 w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
 Lx, Ly = 25., 10.
-dx = dy = 0.50
+dx = dy = 0.25
 dt = dx / c0 * 0.25
 
 grid = psarray.grid2d(int(Lx / dx), int(Ly / dy))
@@ -36,6 +36,8 @@ y = (grid.j + 0.5) * dy - 0.5 * Ly
 obstacle = grid.exp(-((x**2 + y**2) / 1)**64)
 
 fan = grid.cos((x / Lx + 0.2) * np.pi)**64
+
+nPrintsPerPlot, nStepPerPrint = 400, 5
 
 # ---------------------------------------------------------------------------- #
 #                        FINITE DIFFERENCE DISCRETIZATION                      #

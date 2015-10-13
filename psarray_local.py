@@ -77,7 +77,8 @@ class grid2d(object):
 
     def load(self, filename):
         assert self._math is np
-        return self.array(np.load(filename), a._data.shape[2:])
+        data = np.load(filename)
+        return self.array(data, data.shape[2:])
 
     @property
     def i(self):

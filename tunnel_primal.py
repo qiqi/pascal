@@ -31,9 +31,7 @@ else:
 
 figure(figsize=(28,10))
 for iplot in range(200):
-    nPrintsPerPlot = 200
     for iprint in range(nPrintsPerPlot):
-        nStepPerPrint = 5
         for istep in range(nStepPerPrint):
             w = step(w)
         print('%f %f' % tuple(force(w)))
