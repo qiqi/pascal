@@ -27,16 +27,17 @@ def orthogonalize(a):
 
     # orthogonalize
     cov = grid.sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
-    if psarray._VERBOSE_:
-        np.set_printoptions(precision=3, linewidth=1000)
-        print('Before orthogonalize: ', cov)
+    np.set_printoptions(precision=3, linewidth=1000)
+    print('Before orthogonalize: ', cov)
+    sys.stdout.flush()
 
     L = np.linalg.cholesky(cov)
     Linv = np.linalg.inv(L) 
     a = (a[np.newaxis,:,:] * Linv[:,:,np.newaxis]).sum(1)
 
     cov_after = grid.sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
-    if psarray._VERBOSE_: print(' after orthogonalize: ', cov_after)
+    print(' after orthogonalize: ', cov_after)
+    sys.stdout.flush()
 
     return a / w0, L  # re-dimensionalize
 
