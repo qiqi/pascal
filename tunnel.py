@@ -17,7 +17,7 @@ import psarray_local as psarray
 
 DISS_COEFF = 0.0025
 gamma, R = 1.4, 287.
-T0, p0, M0 = 300., 101325., 0.05
+T0, p0, M0 = 300., 101325., 0.25
 
 rho0 = p0 / (R * T0)
 c0 = np.sqrt(gamma * R * T0)
@@ -25,12 +25,13 @@ u0 = c0 * M0
 w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
 Lx, Ly = 25., 10.
-dx = dy = 0.050
+dx = dy = 0.50
 dt = dx / c0 * 0.5
+
 grid = psarray.grid2d(int(Lx / dx), int(Ly / dy))
 
-x = grid.array(lambda i,j: (i + 0.5) * dx -0.2 * Lx)
-y = grid.array(lambda i,j: (j + 0.5) * dy -0.5 * Ly)
+x = (grid.i + 0.5) * dx - 0.2 * Lx
+y = (grid.j + 0.5) * dy - 0.5 * Ly
 
 obstacle = grid.exp(-((x**2 + y**2) / 1)**64)
 
@@ -66,12 +67,12 @@ def rhs(w):
            - (gamma - 1) * (u * diffx(p) + v * diffy(p))
 
     one = grid.ones(r.shape)
-    dissipation_r = dissipation(one, r*r, DISS_COEFF) * c0 / dx
+    # dissipation_r = dissipation(one, r*r, DISS_COEFF) * c0 / dx * 0
     dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
     dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
     dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
 
-    mass += dissipation_r
+    # mass += dissipation_r
     momentum_x += dissipation_x
     momentum_y += dissipation_y
     energy += dissipation_p \
@@ -90,7 +91,7 @@ def rhs(w):
 
 
 def force(w):
-    return grid.sum(0.1 * c0 * obstacle * w[1:3])
+    return grid.reduce_sum(0.1 * c0 * obstacle * w[1:3])
 
 
 @psarray.psc_compile
@@ -110,10 +111,10 @@ def conserved(w):
     r, ru, rv, p = w
     rho, u, v = r * r, ru / r, rv / r
 
-    mass = grid.sum(rho)
-    momentum_x = grid.sum(rho * u)
-    momentum_y = grid.sum(rho * v)
-    energy = grid.sum(p / (gamma - 1) + 0.5 * ru * ru + 0.5 * rv * rv)
+    mass = grid.reduce_sum(rho)
+    momentum_x = grid.reduce_sum(rho * u)
+    momentum_y = grid.reduce_sum(rho * v)
+    energy = grid.reduce_sum(p / (gamma - 1) + 0.5 * ru * ru + 0.5 * rv * rv)
     return mass, momentum_x, momentum_y, energy
 
 def ddt_conserved(w, rhs_w):
@@ -127,12 +128,30 @@ def ddt_conserved(w, rhs_w):
     ddt_rhou2 = 2 * u * ddt_rhou - u**2 * ddt_rho
     ddt_rhov2 = 2 * v * ddt_rhov - v**2 * ddt_rho
 
-    ddt_mass = grid.sum(ddt_rho)
-    ddt_momentum_x = grid.sum(ddt_rhou)
-    ddt_momentum_y = grid.sum(ddt_rhov)
-    ddt_energy = grid.sum(ddt_p / (gamma - 1) + 0.5 * (ddt_rhou2 + ddt_rhov2))
+    ddt_mass = grid.reduce_sum(ddt_rho)
+    ddt_momentum_x = grid.reduce_sum(ddt_rhou)
+    ddt_momentum_y = grid.reduce_sum(ddt_rhov)
+    ddt_energy = grid.reduce_sum(ddt_p / (gamma - 1) + \
+                                 0.5 * (ddt_rhou2 + ddt_rhov2))
     return ddt_mass, ddt_momentum_x, ddt_momentum_y, ddt_energy
 
+
+
+# ---------------------------------------------------------------------------- #
+#                                 TESTS PROBLEM                                #
+# ---------------------------------------------------------------------------- #
+
+if __name__ == '__main__':
+    obstacle *= 0
+    fan *= 0
+    DISS_COEFF = 0.025
+
+    w = (grid.ones(4) + 0.01 * grid.random(4)) + w0
+    conserved_0 = np.array(conserved(w))
+    print(np.array(ddt_conserved(w, rhs(w))))
+    for eps in [1E-8, 1E-7, 1E-6, 1E-5, 1E-4, 1E-3]:
+        conserved_1 = np.array(conserved(w - eps * rhs(w)))
+        print((conserved_1 - conserved_0) / eps)
 
 ################################################################################
 ################################################################################
