@@ -26,17 +26,18 @@ def orthogonalize(a):
     a = a * w0
 
     # orthogonalize
-    cov = grid.reduce_sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
-    if psarray._VERBOSE_:
-        np.set_printoptions(precision=3, linewidth=1000)
-        print('Before orthogonalize: ', cov)
+    cov = grid.sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
+    np.set_printoptions(precision=3, linewidth=1000)
+    print('Before orthogonalize: ', cov)
+    sys.stdout.flush()
 
     L = np.linalg.cholesky(cov)
     Linv = np.linalg.inv(L) 
     a = (a[np.newaxis,:,:] * Linv[:,:,np.newaxis]).sum(1)
 
-    cov_after = grid.reduce_sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
-    if psarray._VERBOSE_: print(' after orthogonalize: ', cov_after)
+    cov_after = grid.sum(a[:,np.newaxis,:] * a[np.newaxis,:,:]).sum(2)
+    print(' after orthogonalize: ', cov_after)
+    sys.stdout.flush()
 
     return a / w0, L  # re-dimensionalize
 
@@ -60,8 +61,6 @@ else:
 figure(figsize=(28,10))
 
 for iplot in range(args.nStart, args.nEnd, -1):
-    nPrintsPerPlot = 500
-    nStepPerPrint = 20
     history = histstack.HistoryStack(nPrintsPerPlot * nStepPerPrint, step)
     history.populate(grid.load('w{0:06d}.npy'.format(iplot - 1)))
 

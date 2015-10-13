@@ -30,10 +30,8 @@ else:
     assert w.shape == (Nx, Ny, 4)
 
 figure(figsize=(28,10))
-for iplot in range(5000):
-    nPrintsPerPlot = 500
+for iplot in range(200):
     for iprint in range(nPrintsPerPlot):
-        nStepPerPrint = 20
         for istep in range(nStepPerPrint):
             w = step(w)
         print('%f %f' % tuple(force(w)))

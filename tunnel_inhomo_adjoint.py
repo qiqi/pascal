@@ -59,8 +59,6 @@ else:
 figure(figsize=(28,10))
 
 for iplot in range(args.nStart, args.nEnd, -1):
-    nPrintsPerPlot = 500
-    nStepPerPrint = 20
     history = histstack.HistoryStack(nPrintsPerPlot * nStepPerPrint, step)
     history.populate(grid.load('w{0:06d}.npy'.format(iplot - 1)))
 
