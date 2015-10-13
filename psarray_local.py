@@ -122,6 +122,16 @@ class grid2d(object):
         axes = (0, 1) + tuple(i+2 for i in axes)
         return self.array(x._data.transpose(axes), (x.shape[i] for i in axes))
 
+    def roll(self, x, shift, axis=None):
+        if axis is None:
+            data = x._data.reshape((self.nx, self.ny, -1))
+            data = self._math.roll(data, shift)
+            data = data.reshape(self._preppend_shape(x.shape))
+        else:
+            data = self._math.roll(x._data, shift, axis+2)
+        return self.array(data, x.shape)
+
+
 
     # -------------------------------------------------------------------- #
     #                            global operations                         #
@@ -566,6 +576,16 @@ class _Indexing(_OpTest):
         self._testOp(lambda x : x[np.newaxis,:-2,2:2:2], (3, 4))
         self._testOp(lambda x : x[:-2,np.newaxis,2:2:2], (3, 4))
 
+
+class _Transforms(_OpTest):
+    def testTranspose(self):
+        pass
+
+    def testRoll(self):
+        self._testOp(lambda x : self.G.roll(x,1), (3, 4))
+        self._testOp(lambda x : self.G.roll(x,-2), (3, 4))
+        self._testOp(lambda x : self.G.roll(x,1,0), (3, 4))
+        self._testOp(lambda x : self.G.roll(x,-2,1), (3, 4))
 
 class _Adjoint(_OpTest):
     def testSimple(self):

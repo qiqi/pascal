@@ -28,6 +28,8 @@ Lx, Ly = 25., 10.
 dx = dy = 0.50
 dt = dx / c0 * 0.5
 
+dz, Nz = dx, 8
+
 grid = psarray.grid2d(int(Lx / dx), int(Ly / dy))
 
 x = (grid.i + 0.5) * dx - 0.2 * Lx
@@ -46,6 +48,9 @@ def diffx(w):
 
 def diffy(w):
     return (w.y_p - w.y_m) / (2 * dy)
+
+def diffz(w):
+    return (grid.roll(w,-1,axis=0) - grid.roll(w,1,axis=0)) / (2 * dz)
 
 def dissipation(r, u, dc):
     # conservative, negative definite dissipation applied to r*d(ru)/dt
