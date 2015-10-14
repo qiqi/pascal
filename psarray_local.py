@@ -119,9 +119,10 @@ class grid2d(object):
     def transpose(self, x, axes=None):
         assert x.grid is self
         if axes is None:
-            axes = reversed(tuple(range(x.ndim)))
-        axes = (0, 1) + tuple(i+2 for i in axes)
-        return self.array(x._data.transpose(axes), (x.shape[i] for i in axes))
+            axes = tuple(reversed(range(x.ndim)))
+        data = x._data.transpose((0, 1) + tuple(i+2 for i in axes))
+        shape = tuple(x.shape[i] for i in axes)
+        return self.array(data, shape)
 
     def roll(self, x, shift, axis=None):
         if axis is None:
@@ -141,6 +142,10 @@ class grid2d(object):
     def reduce_sum(self, a):
         assert a.grid == self
         return a._data.sum(axis=(0,1))
+
+    def reduce_mean(self, a):
+        assert a.grid == self
+        return a._data.mean(axis=(0,1))
 
 #==============================================================================#
 #                               psarray base class                             #
@@ -334,6 +339,13 @@ class psarray_base(object):
         else:
             shape = np.ones(self.shape).sum(axis).shape
             return self.grid.array(self._data.sum(axis + 2), shape)
+
+    def transpose(self, axis=None):
+        return self.grid.transpose(self, axis)
+
+    @property
+    def T(self):
+        return self.grid.transpose(self)
 
 
 #==============================================================================#
@@ -580,7 +592,10 @@ class _Indexing(_OpTest):
 
 class _Transforms(_OpTest):
     def testTranspose(self):
-        pass
+        self._testOp(lambda x : x.T, 2)
+        self._testOp(lambda x : x.T, (2, 4))
+        self._testOp(lambda x : x.T, (2, 3, 4))
+        self._testOp(lambda x : x.transpose([2,0,1]), (2, 3, 4))
 
     def testRoll(self):
         self._testOp(lambda x : self.G.roll(x,1), (3, 4))

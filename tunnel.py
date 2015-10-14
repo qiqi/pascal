@@ -51,9 +51,6 @@ def diffx(w):
 def diffy(w):
     return (w.y_p - w.y_m) / (2 * dy)
 
-def diffz(w):
-    return (grid.roll(w,-1,axis=0) - grid.roll(w,1,axis=0)) / (2 * dz)
-
 def dissipation(r, u, dc):
     # conservative, negative definite dissipation applied to r*d(ru)/dt
     laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
@@ -154,6 +151,7 @@ if __name__ == '__main__':
     DISS_COEFF = 0.025
 
     w = (grid.ones(4) + 0.01 * grid.random(4)) + w0
+    w[1:-1] += 0.01 * (grid.random(2) - 0.5) * w0[1]
     conserved_0 = np.array(conserved(w))
     print(np.array(ddt_conserved(w, rhs(w))))
     for eps in [1E-8, 1E-7, 1E-6, 1E-5, 1E-4, 1E-3]:
