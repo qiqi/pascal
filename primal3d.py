@@ -1,3 +1,7 @@
+import matplotlib
+matplotlib.use('agg')
+matplotlib.interactive(False)
+
 import argparse
 import pylab
 import histstack
@@ -28,7 +32,7 @@ for iplot in range(200):
 
     r, ru, rv, rw, p = Q.T
     rho, u, v, w = r * r, ru / r, rv / r, rw / r
-    clf()
+    pylab.clf()
 
     u_range = linspace(-u0, u0 * 2, 100)
     pylab.subplot(2,1,1)
@@ -40,5 +44,5 @@ for iplot in range(200):
     pylab.contourf(x._data.T, y._data.T, v[0]._data.T, v_range, extend='both')
     pylab.axis('scaled'); pylab.colorbar()
 
-    savefig('fig{0:06d}.png'.format(iplot))
+    pylab.savefig('fig{0:06d}.png'.format(iplot))
 
