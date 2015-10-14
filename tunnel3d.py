@@ -7,7 +7,6 @@
 import pdb
 import sys
 import time
-import argparse
 import numpy as np
 import psarray_local as psarray
 
@@ -25,8 +24,8 @@ u0 = c0 * M0
 Q0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., 0., p0])
 
 Lx, Ly, Lz = 25., 10., 2.
-dx = dy = dz = 0.25
-dt = dx / c0 * 0.25
+dx = dy = dz = 0.50
+dt = dx / c0 * 0.5
 
 grid = psarray.grid2d(int(Lx / dx), int(Ly / dy))
 Nz = int(Lz / dz)
@@ -106,7 +105,7 @@ def rhs(Q):
 
 
 def force(Q):
-    return grid.reduce_sum(0.1 * c0 * obstacle * Q[:,1:-1]) * (dx*dy*dz)
+    return grid.reduce_sum(0.1 * c0 * obstacle * Q[:,1:-1]).sum(0) * (dx*dy*dz)
 
 
 @psarray.psc_compile
@@ -164,7 +163,7 @@ def ddt_conserved(Q, rhs_Q):
 if __name__ == '__main__':
     obstacle *= 0
     fan *= 0
-    DISS_COEFF = 0.0
+    # DISS_COEFF = 0.0
 
     Q = (grid.ones([Nz,5]) + 0.01 * grid.random([Nz,5])) * Q0
     Q[:,1:-1] += 0.01 * (grid.random([Nz,3]) - 0.5) * Q0[1]
@@ -173,6 +172,7 @@ if __name__ == '__main__':
     for eps in [1E-10, 1E-9, 1E-8, 1E-7, 1E-6, 1E-5, 1E-4, 1E-3]:
         conserved_1 = np.array(conserved(Q - eps * rhs(Q)))
         print((conserved_1 - conserved_0) / eps)
+
 
 ################################################################################
 ################################################################################
