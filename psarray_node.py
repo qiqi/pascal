@@ -5,8 +5,9 @@
 ################################################################################
 
 import numbers
-import unittest
 import weakref
+import unittest
+import itertools
 import multiprocessing
 import numpy as np
 import theano
@@ -15,28 +16,73 @@ import theano.tensor as T
 _VERBOSE_ = False
 
 #==============================================================================#
-#                             grid2d_worker class                              #
+#                               grid2d worker                                  #
 #==============================================================================#
 
-class grid2d_worker(object):
-    def __init__(self, commandPipe):
-        self.commandPipe = commandPipe
-        self.V = {}
+def grid2d_worker_main(commandPipe, iRange, commArray):
+    ''
+    V = {}
+    math = np
+    (ixStart, ixEnd), (iyStart, iyEnd) = iRange
+
+    def prepend_shape(shape):
+        return (ixEnd - ixStart, iyEnd - iyStart) + shape
+
+    def data_ndim(a, ndim):
+        ndim_insert = ndim + 2 - a.ndim
+        assert ndim_insert >= 0
+        dataShape = a.shape[:2] + (1,) * ndim_insert + a.shape[2:]
+        return a.reshape(dataShape)
+
+    while True:
+        commandType, cmd, data = commandPipe.recv()
+        if commandType < 0:
+            break
+        elif commandType == 0:
+            exec(cmd, {})
+        elif commandType == 1:
+            commandPipe.send(eval(cmd, {}))
+        else:
+            raise NotImplementedError
 
 
 #==============================================================================#
-#                                 grid2d class                                 #
+#                              grid2d helper functions                         #
 #==============================================================================#
 
 class CommandPipe(object):
     def __init__(self, nWorkers):
-        pass
+        self.directors, self.listeners = [], []
+        for i in range(nWorkers):
+            p0, p1 = multiprocessing.Pipe()
+            self.directors.append(p0)
+            self.listeners.append(p1)
 
-def assign_i_range(nx, ny, nxWorkers, nyWorkers):
-    return iRange
+    def exec_async(self, cmd, data=None):
+        for p in self.directors:
+            p.send((0, cmd, data))
+
+    def eval_sync(self, cmd, data=None):
+        for p in self.directors:
+            p.send((1, cmd, data))
+        return tuple(p.recv() for p in self.directors) 
+
+def assign_i_ranges(nx, ny, nxWorkers, nyWorkers):
+    'return a tuple of (ixStart,ixEnd,iyStart,iyEnd) quads'
+    def assign_1d_ranges(n, nRanges):
+        'return a generator of (iStart,iEnd) pairs'
+        i_boundary = lambda i : i * n / nRanges
+        return ((i_boundary(i), i_boundary(i+1)) for i in range(nRanges))
+    ixRanges = assign_1d_ranges(nx, nxWorkers)
+    iyRanges = assign_1d_ranges(ny, nyWorkers)
+    return tuple(itertools.product(ixRanges, iyRanges))
 
 def make_comm_arrays(iRanges):
     pass
+
+#==============================================================================#
+#                                 grid2d class                                 #
+#==============================================================================#
 
 class grid2d(object):
     def __init__(self, nx, ny, nxWorkers, nyWorkers, maxCommBytesPerGrid=256):
@@ -50,15 +96,15 @@ class grid2d(object):
         self._nyWorkers = int(nyWorkers)
 
         self._commandPipe = CommandPipe(nxWorkers * nyWorkers)
-        iRanges = assign_i_range(nx, ny, nxWorkers, nyWorkers)
-        commArrays = make_comm_arrays(iRanges)
+        self._iRanges = assign_i_ranges(nx, ny, nxWorkers, nyWorkers)
+        self._commArrays = make_comm_arrays(self._iRanges)
 
-        def make_worker(commandPipe, iRange, commArray):
-            return multiprocessing.Process(target=worker_main,
+        def make_worker(commandPipe, self._iRange, self._commArray):
+            return multiprocessing.Process(target=grid2d_worker_main,
                     args=(commandPipe, iRange, commArray))
 
         self._workers = tuple(map(make_worker, commandPipe.listeners,
-                np.ravel(iRanges), np.ravel(commArrays)))
+                np.ravel(self._iRanges), np.ravel(self._commArrays)))
         assert len(self._workers) == nxWorkers * nyWorkers
 
         self._math = np
@@ -89,36 +135,22 @@ class grid2d(object):
         del self._var_weak_refs[a._key]
         self._commandPipe.exec_async('del V["{0}"]'.format(a._key)
 
-    def _data_ndim(self, a, ndim):
-        assert self is a.grid
-        ndim_insert = ndim - a.ndim
-        assert ndim_insert >= 0
-        data_shape = (self.nx, self.ny) + (1,) * ndim_insert + a.shape
-        return a._data.reshape(data_shape)
-
-    def _preppend_shape(self, shape):
-        if isinstance(shape, numbers.Number):
-            shape = (shape,)
-        else:
-            shape = tuple(shape)
-        return (self.nx, self.ny) + shape
-
     # -------------------------------------------------------------------- #
     #                           array constructors                         #
     # -------------------------------------------------------------------- #
 
-    def _array(self, workerCommand, shape):
+    def _array(self, workerCommand, workerData, shape):
         if self._math is np:
-            return psarray_numpy(self, workerCommand, shape)
+            return psarray_numpy(self, workerCommand, workerData, shape)
         elif self._math is T:
-            return psarray_theano(self, workerCommand, shape)
+            return psarray_theano(self, workerCommand, workerData, shape)
 
     def zeros(self, shape):
-        cmd = 'math.zeros(preppend_shape({0}))'
+        cmd = 'math.zeros(prepend_shape({0}))'
         return self._array(cmd.format(str(shape)), shape)
 
     def ones(self, shape):
-        cmd = 'math.ones(preppend_shape({0}))'
+        cmd = 'math.ones(prepend_shape({0}))'
         return self._array(cmd.format(str(shape)), shape)
 
     def random(self, shape=()):
@@ -132,14 +164,14 @@ class grid2d(object):
 
     @property
     def i(self):
-        cmd = '''math.outer(math.arange(ix_start, ix_end),
-                            math.ones(iy_end - iy_start))'''
+        cmd = '''math.outer(math.arange(ixStart, ixEnd),
+                            math.ones(iyEnd - iyStart))'''
         return self._array(cmd, ())
 
     @property
     def j(self):
-        cmd = '''_math.outer(math.ones(ix_end - ix_start),
-                             math.arange(iy_start, iy_end))'''
+        cmd = '''math.outer(math.ones(ixEnd - ixStart),
+                            math.arange(iyStart, iyEnd))'''
         return self._array(cmd, ())
 
     # -------------------------------------------------------------------- #
@@ -170,18 +202,18 @@ class grid2d(object):
         assert x.grid is self
         if axes is None:
             axes = tuple(reversed(range(x.ndim)))
-        data_axes = (0, 1) + tuple(i+2 for i in axes)
-        cmd = 'V["{0}"].transpose({1})'.format(x._key, data_axes)
+        dataAxes = (0, 1) + tuple(i+2 for i in axes)
+        cmd = 'V["{0}"].transpose({1})'.format(x._key, dataAxes)
         shape = tuple(x.shape[i] for i in axes)
         return self._array(cmd, shape)
 
     def roll(self, x, shift, axis=None):
         if axis is None:
             cmd = '''math.roll( \\
-                    V["{0}"].reshape((ix_end-ix_start, iy_end-iy_start, -1)),
-                    {1}).reshape(V["{0}"].shape)'''.format(x._key, shift)
+                     V["{0}"].reshape((ixEnd - ixStart, iyEnd - iyStart, -1)),
+                     {1}).reshape(V["{0}"].shape)'''.format(x._key, shift)
         else:
-            cmd = 'math.roll(V["{0}"], {1}, {2}'.format(x._key, shift, axis+2)
+            cmd = 'math.roll(V["{0}"], {1}, {2})'.format(x._key, shift, axis+2)
         return self._array(cmd, x.shape)
 
 
@@ -192,24 +224,25 @@ class grid2d(object):
     def reduce_sum(self, a):
         assert a.grid == self
         cmd = 'V["{0}"].sum(axis=(0,1))'.format(x._key)
-        return sum(self._commandPipe.gather_sync(cmd))
+        return sum(self._commandPipe.eval_sync(cmd))
 
     def reduce_mean(self, a):
         assert a.grid == self
         cmd = 'V["{0}"].mean(axis=(0,1))'.format(x._key)
-        return sum(self._commandPipe.gather_sync(cmd)) / len(self._workers)
+        return sum(self._commandPipe.eval_sync(cmd)) / len(self._workers)
 
 #==============================================================================#
 #                               psarray base class                             #
 #==============================================================================#
 
 class psarray_base(object):
-    def __init__(self, grid, cmd, shape):
+    def __init__(self, grid, cmd, data, shape):
         self.grid = grid
         assert grid.nx > 0
         assert grid.ny > 0
         self._key = grid._new_var_key_(self)
-        grid._commandPipe.exec_async('V["{0}"] = {1}'.format(self._key, cmd))
+        exec_cmd = 'V["{0}"] = {1}'.format(self._key, cmd)
+        grid._commandPipe.exec_async(exec_cmd, data)
         self._shape = shape
 
     def copy(self):
@@ -246,9 +279,9 @@ class psarray_base(object):
         return ind
 
     def __getitem__(self, ind):
-        data_ind = self._data_index_(ind)
+        dataInd = self._data_index_(ind)
         shape = np.empty(self.shape)[ind].shape
-        cmd = 'V["{0}"][{1}]'.format(self._key, data_ind)
+        cmd = 'V["{0}"][{1}]'.format(self._key, dataInd)
         return self.grid._array(cmd, shape)
 
 
@@ -297,8 +330,9 @@ class psarray_base(object):
                 var = 'data_ndim(V["{0}"], {1})'.format(self._key, ndim)
             else:
                 var = 'V["{0}"]'.format(self._key)
-            cmd = '{0} + pickle.loads({1})'.format(var, pickle.dumps(a))
-            return self.grid._array(cmd, shape)
+            cmd = '{0} + data'.format(var)
+            shape = (np.zeros(self.shape) + a).shape
+            return self.grid._array(cmd, a, shape)
 
     def __rsub__(self, a):
         return a + (-self)
@@ -314,17 +348,19 @@ class psarray_base(object):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
 
-            data = self.grid._data_ndim(self, ndim) \
-                 * self.grid._data_ndim(a, ndim)
+            cmd = 'data_ndim(V["{0}"], {2}) * data_ndim(V["{1}"], {2})' \
+                  .format(self._key, a._key, ndim)
             shape = (np.zeros(self.shape) * np.zeros(a.shape)).shape
-            return self.grid._array(data, shape)
+            return self.grid._array(cmd, shape)
         else:
             if hasattr(a, 'ndim'):
-                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
+                ndim = max(a.ndim, self.ndim)
+                var = 'data_ndim(V["{0}"], {1})'.format(self._key, ndim)
             else:
-                data = self._data
+                var = 'V["{0}"]'.format(self._key)
+            cmd = '{0} * data'.format(var)
             shape = (np.zeros(self.shape) * a).shape
-            return self.grid._array(data * a, shape)
+            return self.grid._array(cmd, a, shape)
 
     def __div__(self, a):
         return self.__truediv__(a)
@@ -334,17 +370,19 @@ class psarray_base(object):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
 
-            data = self.grid._data_ndim(self, ndim) \
-                 / self.grid._data_ndim(a, ndim)
-            shape = (np.zeros(self.shape) / np.ones(a.shape)).shape
-            return self.grid._array(data, shape)
+            cmd = 'data_ndim(V["{0}"], {2}) / data_ndim(V["{1}"], {2})' \
+                  .format(self._key, a._key, ndim)
+            shape = (np.zeros(self.shape) / np.zeros(a.shape)).shape
+            return self.grid._array(cmd, shape)
         else:
             if hasattr(a, 'ndim'):
-                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
+                ndim = max(a.ndim, self.ndim)
+                var = 'data_ndim(V["{0}"], {1})'.format(self._key, ndim)
             else:
-                data = self._data
+                var = 'V["{0}"]'.format(self._key)
+            cmd = '{0} / data'.format(var)
             shape = (np.zeros(self.shape) / a).shape
-            return self.grid._array(data / a, shape)
+            return self.grid._array(cmd, a, shape)
 
     def __rdiv__(self, a):
         return self.__rtruediv__(a)
@@ -354,42 +392,48 @@ class psarray_base(object):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
 
-            data = self.grid._data_ndim(a, ndim) \
-                 / self.grid._data_ndim(self, ndim)
-            shape = (np.ones(a.shape) / np.zeros(self.shape)).shape
-            return self.grid._array(data, shape)
+            cmd = 'data_ndim(V["{1}"], {2}) / data_ndim(V["{0}"], {2})' \
+                  .format(self._key, a._key, ndim)
+            shape = (np.zeros(a.shape) / np.ones(self.shape)).shape
+            return self.grid._array(cmd, shape)
         else:
             if hasattr(a, 'ndim'):
-                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
+                ndim = max(a.ndim, self.ndim)
+                var = 'data_ndim(V["{0}"], {1})'.format(self._key, ndim)
             else:
-                data = self._data
-            shape = (a / np.zeros(self.shape)).shape
-            return self.grid._array(a / data, shape)
+                var = 'V["{0}"]'.format(self._key)
+            cmd = 'data / {0}'.format(var)
+            shape = (a / np.ones(self.shape)).shape
+            return self.grid._array(cmd, a, shape)
 
     def __pow__(self, a):
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
 
-            data = self.grid._data_ndim(self, ndim) \
-                 ** self.grid._data_ndim(a, ndim)
-            shape = (np.ones(self.shape) ** np.ones(a.shape)).shape
-            return self.grid._array(data, shape)
+            cmd = 'data_ndim(V["{0}"], {2}) ** data_ndim(V["{1}"], {2})' \
+                  .format(self._key, a._key, ndim)
+            shape = (np.zeros(self.shape) ** np.zeros(a.shape)).shape
+            return self.grid._array(cmd, shape)
         else:
             if hasattr(a, 'ndim'):
-                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
+                ndim = max(a.ndim, self.ndim)
+                var = 'data_ndim(V["{0}"], {1})'.format(self._key, ndim)
             else:
-                data = self._data
-            shape = (np.ones(self.shape) ** a).shape
-            return self.grid._array(data ** a, shape)
+                var = 'V["{0}"]'.format(self._key)
+            cmd = '{0} ** data'.format(var)
+            shape = (np.zeros(self.shape) ** a).shape
+            return self.grid._array(cmd, a, shape)
 
     def sum(self, axis=None):
         if axis is None:
-            data = self._data.reshape((self.grid.nx, self.grid.ny, -1)).sum(2)
-            return self.grid._array(data, ())
+            cmd = '''V["{0}"].reshape((ixEnd - ixStart, iyEnd - iyStart, -1)) \
+                     .sum(2)'''.format(self._key)
+            return self.grid._array(cmd, ())
         else:
+            cmd = 'V["{0}"].sum({1})'.format(self._key, axis + 2)
             shape = np.ones(self.shape).sum(axis).shape
-            return self.grid._array(self._data.sum(axis + 2), shape)
+            return self.grid._array(cmd, shape)
 
     def transpose(self, axis=None):
         return self.grid.transpose(self, axis)
@@ -446,105 +490,34 @@ class psarray_numpy(psarray_base):
     # -------------------------------------------------------------------- #
 
     def __setitem__(self, ind, a):
-        ind = self._data_index_(ind)
         if isinstance(a, psarray_numpy):
             assert a.grid is self.grid
-            self._data[ind] = a._data
+            a_cmd = 'V["{0}"]'.format(ind, a._key)
+            data = None
         else:
-            self._data[ind] = a
+            a_cmd = 'data'
+            data = a
+        ind = self._data_index_(ind)
+        cmd = 'V["{0}"][{1}] = {2}'.format(a._key, ind, a_cmd)
+        self.grid._commandPipe.exec_async(cmd, data)
+
 
     # -------------------------------------------------------------------- #
     #                           input / output                             #
     # -------------------------------------------------------------------- #
 
+    def _gather_data(self):
+        cmd = 'V["{0}"]'.format(self._key)
+        dataSubarrays = self.grid._commandPipe.eval_sync(cmd)
+
+        data = np.empty((self.nx, self.ny) + self.shape)
+        for iRange, dataSubarray in zip(self._iRange, dataSubarrays):
+            ixStart, ixEnd, iyStart, iyEnd = iRange
+            data[ixStart:ixEnd, iyStart:iyEnd,:] = dataSubarray
+        return data
+
     def save(self, filename):
-        np.save(filename, self._data)
-
-
-#==============================================================================#
-#                        psarray class with theano backend                     #
-#==============================================================================#
-
-class psarray_theano(psarray_base):
-    # -------------------------------------------------------------------- #
-    #                               indexing                               #
-    # -------------------------------------------------------------------- #
-
-    def __setitem__(self, ind, a):
-        ind = self._data_index_(ind)
-        if isinstance(a, psarray_base):
-            assert a.grid is self.grid
-            self._data = T.set_subtensor(self._data[ind], a._data)
-        else:
-            self._data = T.set_subtensor(self._data[ind], a)
-
-
-#==============================================================================#
-#                             theano compilation                               #
-#==============================================================================#
-
-class psc_compile(object):
-    def __init__(self, function):
-        self._function = function
-        self._compiled_function = None
-        self._compiled_adjoint = None
-
-    def __call__(self, u, *args, **kargs):
-        if isinstance(u, psarray_theano):
-            return self._function(u, *args, **kargs)
-        assert isinstance(u, psarray_numpy)
-        if not self._compiled_function:
-            self._compiled_function = self.compile(u, *args, **kargs)
-        data = self._compiled_function(u._data)
-        return u.grid._array(data, data.shape[2:])
-
-    def adjoint(self, out_adj, u, *args, **kargs):
-        assert isinstance(u, psarray_numpy)
-        if not self._compiled_adjoint:
-            self._compiled_adjoint = self.compile_adjoint(u, *args, **kargs)
-        data = self._compiled_adjoint(out_adj._data, u._data)
-        return u.grid._array(data, data.shape[2:])
-
-    def compile(self, u_np, *args, **kargs):
-        grid = u_np.grid
-        grid_math = grid._math
-        grid._math = T
-
-        tensor_dim = u_np.ndim + 2
-        input_data = T.TensorType('float64', (False,) * tensor_dim)()
-
-        u_theano = grid._array(input_data.copy(), u_np.shape)
-        ret = self._function(u_theano, *args, **kargs)
-
-        if _VERBOSE_: print('function evaluated in theano mode, compiling')
-        f = theano.function([input_data], ret._data)
-        if _VERBOSE_: print('function sucessfully compiled')
-
-        grid._math = grid_math
-        return f
-
-    def compile_adjoint(self, u_np, *args, **kargs):
-        grid = u_np.grid
-        grid_math = grid._math
-        grid._math = T
-
-        tensor_dim = u_np.ndim + 2
-        input_data = T.TensorType('float64', (False,) * tensor_dim)()
-
-        u_theano = grid._array(input_data.copy(), u_np.shape)
-        ret = self._function(u_theano, *args, **kargs)
-
-        tensor_dim = ret.ndim + 2
-        ret_adjoint = T.TensorType('float64', (False,) * tensor_dim)()
-        J = (ret._data * ret_adjoint).sum()
-        input_adjoint = T.grad(J, input_data)
-
-        if _VERBOSE_: print('adjoint derived in theano mode, compiling')
-        f = theano.function([ret_adjoint, input_data], input_adjoint)
-        if _VERBOSE_: print('adjoint sucessfully compiled')
-
-        grid._math = grid_math
-        return f
+        np.save(filename, self._gather_data())
 
 
 #==============================================================================#
@@ -577,95 +550,6 @@ class _MathOps(_OpTest):
         self._testOp(lambda x : G.ones(3) + x, 3)
         self._testOp(lambda x : G.ones([4,2,3]) + x + G.ones([3]), [2,3])
 
-    def testSub(self):
-        self._testOp(lambda x : 1 - x, 3)
-        self._testOp(lambda x : x - 1, 3)
-
-        self._testOp(lambda x : x - np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) - x, 3)
-        self._testOp(lambda x : np.ones([4,2,3]) - x - np.ones([3]), [2,3])
-
-        G = self.G
-        self._testOp(lambda x : x - G.ones(3), 3)
-        self._testOp(lambda x : G.ones(3) - x, 3)
-        self._testOp(lambda x : G.ones([4,2,3]) - x - G.ones([3]), [2,3])
-
-    def testMul(self):
-        self._testOp(lambda x : 1 * x, 3)
-        self._testOp(lambda x : x * 1, 3)
-
-        self._testOp(lambda x : x * np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) * x, 3)
-        self._testOp(lambda x : np.ones([4,2,3]) * x * np.ones([3]), [2,3])
-
-        G = self.G
-        self._testOp(lambda x : x * G.ones(3), 3)
-        self._testOp(lambda x : G.ones(3) * x, 3)
-        self._testOp(lambda x : G.ones([4,2,3]) * x * G.ones([3]), [2,3])
-
-    def testDiv(self):
-        self._testOp(lambda x : 1 / x, 3)
-        self._testOp(lambda x : x / 1, 3)
-
-        self._testOp(lambda x : x / np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) / x, 3)
-        self._testOp(lambda x : np.ones([4,2,3]) / x / np.ones([3]), [2,3])
-
-        G = self.G
-        self._testOp(lambda x : x / G.ones(3), 3)
-        self._testOp(lambda x : G.ones(3) / x, 3)
-        self._testOp(lambda x : G.ones([4,2,3]) / x / G.ones([3]), [2,3])
-
-    def testUnivariate(self):
-        def test01(x):
-            x += 1
-            return x
-        self._testOp(test01, 3)
-
-    def testSum(self):
-        self._testOp(lambda x : x.sum(), 3)
-        self._testOp(lambda x : x.sum(), (3, 4))
-        self._testOp(lambda x : x.sum(axis=0), (3, 4))
-        self._testOp(lambda x : x.sum(axis=1), (3, 4))
-
-
-class _Indexing(_OpTest):
-    def testGet(self):
-        self._testOp(lambda x : x[2], (3,))
-        self._testOp(lambda x : x[:], (3,))
-        self._testOp(lambda x : x[:,0], (3, 4))
-        self._testOp(lambda x : x[:,:2], (3, 4))
-        self._testOp(lambda x : x[:-2,2:2:2], (3, 4))
-        self._testOp(lambda x : x[:,np.newaxis] * x[np.newaxis,:], (4,))
-        self._testOp(lambda x : x[np.newaxis,:-2,2:2:2], (3, 4))
-        self._testOp(lambda x : x[:-2,np.newaxis,2:2:2], (3, 4))
-
-
-class _Transforms(_OpTest):
-    def testTranspose(self):
-        self._testOp(lambda x : x.T, 2)
-        self._testOp(lambda x : x.T, (2, 4))
-        self._testOp(lambda x : x.T, (2, 3, 4))
-        self._testOp(lambda x : x.transpose([2,0,1]), (2, 3, 4))
-
-    def testRoll(self):
-        self._testOp(lambda x : self.G.roll(x,1), (3, 4))
-        self._testOp(lambda x : self.G.roll(x,-2), (3, 4))
-        self._testOp(lambda x : self.G.roll(x,1,0), (3, 4))
-        self._testOp(lambda x : self.G.roll(x,-2,1), (3, 4))
-
-class _Adjoint(_OpTest):
-    def testSimple(self):
-        x = self.G.ones(3) * 2
-        a = self.G.ones(3) * 5
-
-        f = psc_compile(lambda x : x * x)
-        g = f.adjoint(a, x)
-        self.assertAlmostEqual(0, np.linalg.norm((g - a * x * 2)._data))
-
-        f = psc_compile(lambda x : self.G.exp(x))
-        g = f.adjoint(a, x)
-        self.assertAlmostEqual(0, np.linalg.norm((g - a * self.G.exp(x))._data))
 
 # ---------------------------------------------------------------------------- #
 
