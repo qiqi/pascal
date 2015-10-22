@@ -21,9 +21,19 @@ _VERBOSE_ = False
 
 def grid2d_worker_main(commandPipe, iRange, commArray):
     ''
-    V = {}
-    math = np
+    # --------------------------------------------------------------------- #
+    #                          "global" variables                           #
+    # --------------------------------------------------------------------- #
+
     (ixStart, ixEnd), (iyStart, iyEnd) = iRange
+    comm_x_p, comm_x_m, comm_y_p, comm_y_m = commArray
+
+    V, _V_with_ghost = {}, {}
+    math = np
+
+    # --------------------------------------------------------------------- #
+    #                        "global" utility functions                     #
+    # --------------------------------------------------------------------- #
 
     def prepend_shape(shape):
         return (ixEnd - ixStart, iyEnd - iyStart) + shape
@@ -33,6 +43,54 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
         assert ndim_insert >= 0
         dataShape = a.shape[:2] + (1,) * ndim_insert + a.shape[2:]
         return a.reshape(dataShape)
+
+    def del_V(key):
+        del V[key]
+        if key in _V_with_ghost:
+            del _V_with_ghost[key]
+
+    # --------------------------------------------------------------------- #
+    #                           neighbor access                             #
+    # --------------------------------------------------------------------- #
+
+    def _update_V_with_ghost(key):
+        if key not in _V_with_ghost:
+            v = V['key']
+            comm_x_p.send(v[-1,:]); comm_x_m.send(v[0,:])
+            comm_y_p.send(v[:,-1]); comm_y_m.send(v[:,0])
+
+            shape_with_ghost = (v.shape[0] + 2, v.shape[1] + 2) + v.shape[2:]
+            _V_with_ghost[key] = np.empty(shape_with_ghost)
+            _V_with_ghost[key][1:-1,1:-1] = v
+
+            _V_with_ghost[key][0,1:-1] = comm_x_m.recv()
+            _V_with_ghost[key][-1,1:-1] = comm_x_p.recv()
+            _V_with_ghost[key][1:-1,0] = comm_p_m.recv()
+            _V_with_ghost[key][1:-1,-1] = comm_p_p.recv()
+
+    def invalidate_ghost(key):
+        if key in _V_with_ghost:
+            del _V_with_ghost[key]
+
+    def x_p(key):
+        _update_V_with_ghost(key)
+        return _V_with_ghost[key][2:,1:-1]
+
+    def x_m(key):
+        _update_V_with_ghost(key)
+        return _V_with_ghost[key][:-2,1:-1]
+
+    def y_p(key):
+        _update_V_with_ghost(key)
+        return _V_with_ghost[key][1:-1,2:]
+
+    def y_m(key):
+        _update_V_with_ghost(key)
+        return _V_with_ghost[key][1:-1,:-2]
+
+    # --------------------------------------------------------------------- #
+    #                           main event loop                             #
+    # --------------------------------------------------------------------- #
 
     while True:
         commandType, cmd, data = commandPipe.recv()
@@ -67,6 +125,7 @@ class CommandPipe(object):
             p.send((1, cmd, data))
         return tuple(p.recv() for p in self.directors) 
 
+
 def assign_i_ranges(nx, ny, nxWorkers, nyWorkers):
     'return a tuple of (ixStart,ixEnd,iyStart,iyEnd) quads'
     def assign_1d_ranges(n, nRanges):
@@ -77,8 +136,10 @@ def assign_i_ranges(nx, ny, nxWorkers, nyWorkers):
     iyRanges = assign_1d_ranges(ny, nyWorkers)
     return tuple(itertools.product(ixRanges, iyRanges))
 
+
 def make_comm_arrays(iRanges):
-    pass
+    last functionto implement
+
 
 #==============================================================================#
 #                                 grid2d class                                 #
@@ -133,7 +194,7 @@ class grid2d(object):
 
     def _del_var_key_(self, a):
         del self._var_weak_refs[a._key]
-        self._commandPipe.exec_async('del V["{0}"]'.format(a._key)
+        self._commandPipe.exec_async('del_V("{0}")'.format(a._key)
 
     # -------------------------------------------------------------------- #
     #                           array constructors                         #
@@ -291,19 +352,19 @@ class psarray_base(object):
 
     @property
     def x_p(self):
-        return self.grid._array('x_p(V["{0}"])'.format(self._key), self.shape)
+        return self.grid._array('x_p("{0}")'.format(self._key), self.shape)
 
     @property
     def x_m(self):
-        return self.grid._array('x_m(V["{0}"])'.format(self._key), self.shape)
+        return self.grid._array('x_m("{0}")'.format(self._key), self.shape)
 
     @property
     def y_p(self):
-        return self.grid._array('y_p(V["{0}"])'.format(self._key), self.shape)
+        return self.grid._array('y_p("{0}")'.format(self._key), self.shape)
 
     @property
     def y_m(self):
-        return self.grid._array('y_m(V["{0}"])'.format(self._key), self.shape)
+        return self.grid._array('y_m("{0}")'.format(self._key), self.shape)
 
     # -------------------------------------------------------------------- #
     #                         algorithmic operations                       #
@@ -490,6 +551,9 @@ class psarray_numpy(psarray_base):
     # -------------------------------------------------------------------- #
 
     def __setitem__(self, ind, a):
+        cmd = 'invalidate_ghost("{0}")'.format(a._key)
+        self.grid._commandPipe.exec_async(cmd)
+
         if isinstance(a, psarray_numpy):
             assert a.grid is self.grid
             a_cmd = 'V["{0}"]'.format(ind, a._key)
