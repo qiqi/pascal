@@ -3,6 +3,7 @@ matplotlib.use('agg')
 matplotlib.interactive(False)
 
 import argparse
+import numpy as np
 import pylab
 import histstack
 
@@ -15,7 +16,7 @@ args = parser.parse_args()
 
 if args.nStart == 0:
     Q = grid.zeros([Nz, 5]) + Q0
-    Q[:] *= 1 + 0.01 * (grid.random() - 0.5)
+    Q[:,1:-1] += 0.01 * (grid.random([Nz,3]) - 0.5) * Q0[1]
 else:
     Q = grid.load('Q{0:06d}.npy'.format(args.nStart))
     assert Q.shape == (grid.Nx, grid.Ny, Nz, 5)
@@ -34,12 +35,12 @@ for iplot in range(200):
     rho, u, v, w = r * r, ru / r, rv / r, rw / r
     pylab.clf()
 
-    u_range = linspace(-u0, u0 * 2, 100)
+    u_range = np.linspace(-u0, u0 * 2, 100)
     pylab.subplot(2,1,1)
     pylab.contourf(x._data.T, y._data.T, u[0]._data.T, u_range, extend='both')
     pylab.axis('scaled'); pylab.colorbar()
 
-    v_range = linspace(-u0, u0, 100)
+    v_range = np.linspace(-u0, u0, 100)
     pylab.subplot(2,1,2)
     pylab.contourf(x._data.T, y._data.T, v[0]._data.T, v_range, extend='both')
     pylab.axis('scaled'); pylab.colorbar()

@@ -97,7 +97,7 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
         if commandType < 0:
             break
         elif commandType == 0:
-            exec(cmd, {})
+            exec cmd in {}, locals()
         elif commandType == 1:
             commandPipe.send(eval(cmd, {}))
         else:
@@ -127,18 +127,27 @@ class CommandPipe(object):
 
 
 def assign_i_ranges(nx, ny, nxWorkers, nyWorkers):
-    'return a tuple of (ixStart,ixEnd,iyStart,iyEnd) quads'
+    'return a tuple of ((ixStart, ixEnd), (iyStart, iyEnd)) quads'
     def assign_1d_ranges(n, nRanges):
         'return a generator of (iStart,iEnd) pairs'
-        i_boundary = lambda i : i * n / nRanges
+        i_boundary = lambda i : int(i * n / nRanges)
         return ((i_boundary(i), i_boundary(i+1)) for i in range(nRanges))
     ixRanges = assign_1d_ranges(nx, nxWorkers)
     iyRanges = assign_1d_ranges(ny, nyWorkers)
     return tuple(itertools.product(ixRanges, iyRanges))
 
 
-def make_comm_arrays(iRanges):
-    last functionto implement
+def make_comm_arrays(nxWorkers, nyWorkers):
+    '''return a tuple of periodically connected,
+       ((p_xm, p_xp), (p_ym, p_yp)) pipe quads'''
+    def iter_1d_comm_arrays(n):
+        'return a generator of periodic pipe pairs'
+        pipes = np.array([multiprocessing.Pipe() for i in range(n)])
+        for pair in zip(pipes[:,0], np.roll(pipes[:,1], -1)):
+            yield pair
+    return tuple(itertools.product(iter_1d_comm_arrays(nxWorkers),
+                                   iter_1d_comm_arrays(nyWorkers)))
+
 
 
 #==============================================================================#
@@ -158,9 +167,9 @@ class grid2d(object):
 
         self._commandPipe = CommandPipe(nxWorkers * nyWorkers)
         self._iRanges = assign_i_ranges(nx, ny, nxWorkers, nyWorkers)
-        self._commArrays = make_comm_arrays(self._iRanges)
+        self._commArrays = make_comm_arrays(nxWorkers, nyWorkers)
 
-        def make_worker(commandPipe, self._iRange, self._commArray):
+        def make_worker(commandPipe, iRange, commArray):
             return multiprocessing.Process(target=grid2d_worker_main,
                     args=(commandPipe, iRange, commArray))
 
@@ -194,7 +203,7 @@ class grid2d(object):
 
     def _del_var_key_(self, a):
         del self._var_weak_refs[a._key]
-        self._commandPipe.exec_async('del_V("{0}")'.format(a._key)
+        self._commandPipe.exec_async('del_V("{0}")'.format(a._key))
 
     # -------------------------------------------------------------------- #
     #                           array constructors                         #
@@ -588,6 +597,32 @@ class psarray_numpy(psarray_base):
 #                                  unit tests                                  #
 #==============================================================================#
 
+class _Grid2dHelperFunctionsTest(unittest.TestCase):
+    def test_assign_i_ranges(self):
+        res = assign_i_ranges(4,4,2,2)
+        self.assertEqual(res[0], ((0,2),(0,2)))
+        self.assertEqual(res[1], ((0,2),(2,4)))
+        self.assertEqual(res[2], ((2,4),(0,2)))
+        self.assertEqual(res[3], ((2,4),(2,4)))
+
+    def test_make_comm_arrays(self):
+        arr = make_comm_arrays(2,2)
+        (p00_xm, p00_xp), (p00_ym, p00_yp) = arr[0]
+        (p01_xm, p01_xp), (p01_ym, p01_yp) = arr[1]
+        (p10_xm, p10_xp), (p10_ym, p10_yp) = arr[2]
+        (p11_xm, p11_xp), (p11_ym, p11_yp) = arr[3]
+
+        p00_xm.send(0)
+        self.assertEqual(p10_xp.recv(), 0)
+        p10_xm.send(1)
+        self.assertEqual(p00_xp.recv(), 1)
+
+        p00_yp.send(2)
+        self.assertEqual(p01_ym.recv(), 2)
+        p11_yp.send(3)
+        self.assertEqual(p10_ym.recv(), 3)
+
+
 class _OpTest(unittest.TestCase):
     def __init__(self, *args, **kargs):
         unittest.TestCase.__init__(self, *args, **kargs)
@@ -600,19 +635,19 @@ class _OpTest(unittest.TestCase):
         self.assertAlmostEqual(0, np.abs((y0 - y1)._data).sum())
 
 
-class _MathOps(_OpTest):
-    def testAdd(self):
-        self._testOp(lambda x : 1 + x, 3)
-        self._testOp(lambda x : x + 1, 3)
-
-        self._testOp(lambda x : x + np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) + x, 3)
-        self._testOp(lambda x : np.ones([4,2,3]) + x + np.ones([3]), [2,3])
-
-        G = self.G
-        self._testOp(lambda x : x + G.ones(3), 3)
-        self._testOp(lambda x : G.ones(3) + x, 3)
-        self._testOp(lambda x : G.ones([4,2,3]) + x + G.ones([3]), [2,3])
+# class _MathOps(_OpTest):
+#     def testAdd(self):
+#         self._testOp(lambda x : 1 + x, 3)
+#         self._testOp(lambda x : x + 1, 3)
+# 
+#         self._testOp(lambda x : x + np.ones(3), 3)
+#         self._testOp(lambda x : np.ones(3) + x, 3)
+#         self._testOp(lambda x : np.ones([4,2,3]) + x + np.ones([3]), [2,3])
+# 
+#         G = self.G
+#         self._testOp(lambda x : x + G.ones(3), 3)
+#         self._testOp(lambda x : G.ones(3) + x, 3)
+#         self._testOp(lambda x : G.ones([4,2,3]) + x + G.ones([3]), [2,3])
 
 
 # ---------------------------------------------------------------------------- #

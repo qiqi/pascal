@@ -14,7 +14,7 @@ import psarray_local as psarray
 #                                 PROBLEM SET UP                               #
 # ---------------------------------------------------------------------------- #
 
-DISS_COEFF = 0.01
+DISS_COEFF = 0.005
 gamma, R = 1.4, 287.
 T0, p0, M0 = 300., 101325., 0.25
 
@@ -23,8 +23,8 @@ c0 = np.sqrt(gamma * R * T0)
 u0 = c0 * M0
 Q0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., 0., p0])
 
-Lx, Ly, Lz = 25., 10., 2.
-dx = dy = dz = 0.50
+Lx, Ly, Lz = 40., 10., 2.
+dx = dy = dz = 0.125
 dt = dx / c0 * 0.5
 
 grid = psarray.grid2d(int(Lx / dx), int(Ly / dy))
@@ -33,9 +33,9 @@ Nz = int(Lz / dz)
 x = (grid.i + 0.5) * dx - 0.2 * Lx
 y = (grid.j + 0.5) * dy - 0.5 * Ly
 
-obstacle = grid.exp(-((x**2 + y**2) / 1)**64)
+obstacle = grid.exp(-((x**2 + (y - 0.01)**2) / 1)**64)
 
-fan = grid.cos((x / Lx + 0.2) * np.pi)**64
+fan = 4 * grid.cos((x / Lx + 0.2) * np.pi)**64
 
 nPrintsPerPlot, nStepPerPrint = 400, 5
 
@@ -79,17 +79,17 @@ def rhs(Q):
            - (gamma - 1) * (u * diffx(p) + v * diffy(p) + w * diffz(p))
 
     one = grid.ones(r.shape)
-    dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
-    dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
-    dissipation_z = dissipation(r, w, DISS_COEFF) * c0 / dz
+    # dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
+    # dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
+    # dissipation_z = dissipation(r, w, DISS_COEFF) * c0 / dz
     dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / min(dx,dy,dz)
 
-    momentum_x += dissipation_x
-    momentum_y += dissipation_y
-    momentum_z += dissipation_z
-    energy += dissipation_p - (gamma - 1) * (u * dissipation_x + \
-                                             v * dissipation_y + \
-                                             w * dissipation_z)
+    # momentum_x += dissipation_x
+    # momentum_y += dissipation_y
+    # momentum_z += dissipation_z
+    energy += dissipation_p #- (gamma - 1) * (u * dissipation_x + \
+                            #                 v * dissipation_y + \
+                            #                 w * dissipation_z)
 
     rhs_Q = grid.zeros(Q.shape)
     rhs_Q[:,0] = 0.5 * mass / r
