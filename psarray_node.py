@@ -4,6 +4,7 @@
 #                                                                              #
 ################################################################################
 
+import time
 import numbers
 import unittest
 import itertools
@@ -19,13 +20,18 @@ _VERBOSE_ = False
 #==============================================================================#
 
 def grid2d_worker_main(commandPipe, iRange, commArray):
-    ''
+    '''
+    Each worker process executes this function.
+    Expressions sent from director only has access to local variables
+    and functions of this function.  To these expressions, these local
+    variables and functions are effective global variables and functions.
+    '''
     # --------------------------------------------------------------------- #
     #                          "global" variables                           #
     # --------------------------------------------------------------------- #
 
     (ixStart, ixEnd), (iyStart, iyEnd) = iRange
-    (comm_x_m, comm_x_p), (comm_y_m, comm_y_p) = commArray
+    iWorker, ((comm_x_m, comm_x_p), (comm_y_m, comm_y_p)) = commArray
 
     V, _V_with_ghost = {}, {}
     math = np
@@ -54,7 +60,7 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
 
     def _update_V_with_ghost(key):
         if key not in _V_with_ghost:
-            v = V['key']
+            v = V[key]
             comm_x_p.send(v[-1,:]); comm_x_m.send(v[0,:])
             comm_y_p.send(v[:,-1]); comm_y_m.send(v[:,0])
 
@@ -64,8 +70,8 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
 
             _V_with_ghost[key][0,1:-1] = comm_x_m.recv()
             _V_with_ghost[key][-1,1:-1] = comm_x_p.recv()
-            _V_with_ghost[key][1:-1,0] = comm_p_m.recv()
-            _V_with_ghost[key][1:-1,-1] = comm_p_p.recv()
+            _V_with_ghost[key][1:-1,0] = comm_y_m.recv()
+            _V_with_ghost[key][1:-1,-1] = comm_y_p.recv()
 
     def _invalidate_ghost(key):
         if key in _V_with_ghost:
@@ -93,17 +99,24 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
 
     while True:
         varKey, varIndex, expression, data, wantResult = commandPipe.recv()
-        if varKey == 'KILL':
-            return
-        elif varKey is None:
-            result = eval(expression, {}, locals())
-            if wantResult:
-                commandPipe.send(result)
-        elif varIndex is None:
-            V[varKey] = eval(expression, {}, locals())
-        else:
-            V[varKey][varIndex] = eval(expression, {}, locals())
-            _invalidate_ghost(varKey)
+        try:
+            if varKey == 'KILL':
+                return
+            elif varKey is None:
+                result = eval(expression, {}, locals())
+                if wantResult:
+                    commandPipe.send(result)
+            elif varIndex is None:
+                V[varKey] = eval(expression, {}, locals())
+            else:
+                V[varKey][varIndex] = eval(expression, {}, locals())
+                _invalidate_ghost(varKey)
+        except Exception as e:
+            print('Worker {0} CRASH caused by'.format(iWorker) + \
+                  '\n\tk:{0}\n\ti:{1}\n\te:{2}\n\td:{3}\n'.format(
+                   varKey, varIndex, expression, data) + \
+                  str(e) + '\n')
+            raise
 
 
 #==============================================================================#
@@ -152,15 +165,37 @@ def assign_i_ranges(nx, ny, nxWorkers, nyWorkers):
 
 
 def make_comm_arrays(nxWorkers, nyWorkers):
-    '''return a tuple of periodically connected,
-       ((p_xm, p_xp), (p_ym, p_yp)) pipe quads'''
-    def iter_1d_comm_arrays(n):
-        'return a generator of periodic pipe pairs'
-        pipes = np.array([multiprocessing.Pipe() for i in range(n)])
-        for pair in zip(pipes[:,0], np.roll(pipes[:,1], -1)):
-            yield pair
-    return tuple(itertools.product(iter_1d_comm_arrays(nxWorkers),
-                                   iter_1d_comm_arrays(nyWorkers)))
+    '''
+    return a tuple of periodically connected,
+    ((p_xm, p_xp), (p_ym, p_yp)) pipe quads
+    '''
+    class iter_1d_comm_arrays(object):
+        '''
+        iterator that returns circular pairs of pipes
+        that links backward and forward
+        '''
+        def __init__(self, n):
+            self.n = n
+        def __iter__(self):
+            pipes = np.array([multiprocessing.Pipe() for i in range(self.n)])
+            for pair in zip(pipes[:,0], np.roll(pipes[:,1], -1)):
+                yield pair
+
+    def product_without_duplication(xGen, yGen):
+        '''
+        Similar to itertools.product, except what's returned are not
+        duplicate alias of each other, but individually generated
+        '''
+        comm = [[] for x in xGen]
+        for iy, y in enumerate(yGen):
+            for ix, x in enumerate(xGen):
+                comm[ix].append(x)
+        for ix, x in enumerate(xGen):
+            for iy, y in enumerate(yGen):
+                yield comm[ix][iy], y
+
+    return tuple(enumerate(product_without_duplication(
+        iter_1d_comm_arrays(nxWorkers), iter_1d_comm_arrays(nyWorkers))))
 
 
 
@@ -227,12 +262,12 @@ class grid2d(object):
     #                           array constructors                         #
     # -------------------------------------------------------------------- #
 
-    def _array(self, workerCommand, shape, workerData=None):
+    def _array(self, workerCommand, shape, data=None):
         shape = np.empty(shape).shape
         if self._math is np:
-            return psarray_numpy(self, workerCommand, workerData, shape)
+            return psarray_numpy(self, workerCommand, data, shape)
         elif self._math is T:
-            return psarray_theano(self, workerCommand, workerData, shape)
+            return psarray_theano(self, workerCommand, data, shape)
 
     def zeros(self, shape):
         expr = 'math.zeros(prepend_shape({0}))'
@@ -312,12 +347,12 @@ class grid2d(object):
 
     def reduce_sum(self, a):
         assert a.grid == self
-        expr = 'V[{0}].sum(axis=(0,1))'.format(x._key)
+        expr = 'V[{0}].sum(axis=(0,1))'.format(a._key)
         return sum(self._commandPipe.eval_sync(expr))
 
     def reduce_mean(self, a):
         assert a.grid == self
-        expr = 'V[{0}].mean(axis=(0,1))'.format(x._key)
+        expr = 'V[{0}].mean(axis=(0,1))'.format(a._key)
         return sum(self._commandPipe.eval_sync(expr)) / len(self._workers)
 
 #==============================================================================#
@@ -621,12 +656,12 @@ class _Grid2dHelperFunctionsTest(unittest.TestCase):
         self.assertEqual(res[2], ((2,4),(0,2)))
         self.assertEqual(res[3], ((2,4),(2,4)))
 
-    def test_make_comm_arrays(self):
+    def test_make_comm_arrays_2_2(self):
         arr = make_comm_arrays(2,2)
-        (p00_xm, p00_xp), (p00_ym, p00_yp) = arr[0]
-        (p01_xm, p01_xp), (p01_ym, p01_yp) = arr[1]
-        (p10_xm, p10_xp), (p10_ym, p10_yp) = arr[2]
-        (p11_xm, p11_xp), (p11_ym, p11_yp) = arr[3]
+        (p00_xm, p00_xp), (p00_ym, p00_yp) = arr[0][1]
+        (p01_xm, p01_xp), (p01_ym, p01_yp) = arr[1][1]
+        (p10_xm, p10_xp), (p10_ym, p10_yp) = arr[2][1]
+        (p11_xm, p11_xp), (p11_ym, p11_yp) = arr[3][1]
 
         p00_xm.send(0)
         self.assertEqual(p10_xp.recv(), 0)
@@ -638,17 +673,21 @@ class _Grid2dHelperFunctionsTest(unittest.TestCase):
         p11_yp.send(3)
         self.assertEqual(p10_ym.recv(), 3)
 
-
-class _SmokeTest(unittest.TestCase):
-    def __init__(self, *args, **kargs):
-        unittest.TestCase.__init__(self, *args, **kargs)
-        self.grid = grid2d(8, 10, 2, 2)
-
-    def testSimple(self):
-        G = self.grid
-        a = G.ones(1) + G.zeros(2)
-        Z = a._gather_data() - np.ones([G.nx, G.ny, 2])
-        self.assertAlmostEqual(0, np.abs(Z).max())
+    def test_make_comm_arrays_3_1(self):
+        arr = make_comm_arrays(3,1)
+        (p0_xm, p0_xp), (p0_ym, p0_yp) = arr[0][1]
+        (p1_xm, p1_xp), (p1_ym, p1_yp) = arr[1][1]
+        (p2_xm, p2_xp), (p2_ym, p2_yp) = arr[2][1]
+        
+        p0_xm.send(0)
+        self.assertEqual(p2_xp.recv(), 0)
+        p1_xp.send(1)
+        self.assertEqual(p2_xm.recv(), 1)
+        
+        p0_ym.send(100)
+        self.assertEqual(p0_yp.recv(), 100)
+        p1_yp.send(101)
+        self.assertEqual(p1_ym.recv(), 101)
 
 
 class _OpTest(unittest.TestCase):
@@ -678,10 +717,47 @@ class _OpTest(unittest.TestCase):
 #         self._testOp(lambda x : G.ones([4,2,3]) + x + G.ones([3]), [2,3])
 
 
+#==============================================================================#
+#                                 smoke tests                                  #
+#==============================================================================#
+
+def smoke_test():
+    'Does the code crash?'
+    G = grid2d(8, 10, 3, 1)
+    a = G.ones(1) + G.zeros(2)
+    b = a.x_p + a.x_m + a.y_p + a.y_m - 4 * a
+    b._gather_data()
+    print('Smoke test completed')
+
+#==============================================================================#
+#                                 speed tests                                  #
+#==============================================================================#
+
+def speed_test():
+    nGridX, nRepeat = 920, 100
+    a = np.ones([nGridX, 40])
+    t0 = time.time()
+    for i in range(nRepeat):
+        a += np.sin(a)
+    a.sum()
+    print(time.time() - t0)
+
+    G = grid2d(nGridX, 40, 4, 1)
+    a = G.ones(1)
+    t0 = time.time()
+    for i in range(nRepeat):
+        a += G.sin(a)
+    G.reduce_sum(a)
+    print(time.time() - t0)
+
+
+
 # ---------------------------------------------------------------------------- #
 
 if __name__ == '__main__':
     # _VERBOSE_ = True
+    smoke_test()
+    speed_test()
     unittest.main()
 
 
