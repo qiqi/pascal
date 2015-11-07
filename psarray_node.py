@@ -58,6 +58,11 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
     #                           neighbor access                             #
     # --------------------------------------------------------------------- #
 
+    def _update_all_V_with_ghost():
+        # TODO: Optimize
+        for key in V:
+            _update_V_with_ghost(key)
+
     def _update_V_with_ghost(key):
         if key not in _V_with_ghost:
             v = V[key]
@@ -702,21 +707,6 @@ class _OpTest(unittest.TestCase):
         self.assertAlmostEqual(0, np.abs((y0 - y1)._data).sum())
 
 
-# class _MathOps(_OpTest):
-#     def testAdd(self):
-#         self._testOp(lambda x : 1 + x, 3)
-#         self._testOp(lambda x : x + 1, 3)
-# 
-#         self._testOp(lambda x : x + np.ones(3), 3)
-#         self._testOp(lambda x : np.ones(3) + x, 3)
-#         self._testOp(lambda x : np.ones([4,2,3]) + x + np.ones([3]), [2,3])
-# 
-#         G = self.G
-#         self._testOp(lambda x : x + G.ones(3), 3)
-#         self._testOp(lambda x : G.ones(3) + x, 3)
-#         self._testOp(lambda x : G.ones([4,2,3]) + x + G.ones([3]), [2,3])
-
-
 #==============================================================================#
 #                                 smoke tests                                  #
 #==============================================================================#
@@ -740,7 +730,7 @@ def speed_test():
     for i in range(nRepeat):
         a += np.sin(a)
     a.sum()
-    print(time.time() - t0)
+    print((time.time() - t0) * 1E6 / nRepeat)
 
     G = grid2d(nGridX, 40, 4, 1)
     a = G.ones(1)
@@ -748,7 +738,7 @@ def speed_test():
     for i in range(nRepeat):
         a += G.sin(a)
     G.reduce_sum(a)
-    print(time.time() - t0)
+    print((time.time() - t0) * 1E6 / nRepeat)
 
 
 

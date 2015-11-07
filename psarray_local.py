@@ -17,6 +17,9 @@ _VERBOSE_ = False
 #==============================================================================#
 
 class grid2d(object):
+    '''
+    Provide "global" utility function for array2d family of classes
+    '''
     def __init__(self, nx, ny):
         assert nx > 0
         assert ny > 0
@@ -46,7 +49,7 @@ class grid2d(object):
         data_shape = (self.nx, self.ny) + (1,) * ndim_insert + a.shape
         return a._data.reshape(data_shape)
 
-    def _preppend_shape(self, shape):
+    def _preppend_shape(self, shape, a=None):
         if isinstance(shape, numbers.Number):
             shape = (shape,)
         else:
@@ -128,7 +131,7 @@ class grid2d(object):
         if axis is None:
             data = x._data.reshape((self.nx, self.ny, -1))
             data = self._math.roll(data, shift)
-            data = data.reshape(self._preppend_shape(x.shape))
+            data = data.reshape(self._preppend_shape(x.shape, x))
         else:
             data = self._math.roll(x._data, shift, axis+2)
         return self._array(data, x.shape)
