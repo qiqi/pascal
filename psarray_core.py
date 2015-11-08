@@ -10,40 +10,33 @@ import numpy as np
 import theano
 import theano.tensor as T
 
-import psarray_local
-
 _VERBOSE_ = False
 
 #==============================================================================#
 #                                 grid2d class                                 #
 #==============================================================================#
 
-class ghosty_grid2d(object):
+class grid2d(object):
     '''
-    Overload a few "global" utility functions, making them sensitive to
-    whether the array has up-to-date ghost grid values
+    Provide "global" utility function for array2d family of classes
     '''
-    def __init__(self, ixStart, ixEnd, iyStart, iyEnd, nxGlobal, nyGlobal):
+    def __init__(self, nx, ny):
         assert ixStart >= 0 and ixEnd > ixStart and nxGlobal >= ixEnd
         assert iyStart >= 0 and iyEnd > iyStart and nyGlobal >= iyEnd
 
-        self._ixStart = int(ixStart)
-        self._iyStart = int(iyStart)
-        self._ixEnd = int(ixEnd)
-        self._iyEnd = int(iyEnd)
-        self._nxGlobal = int(nxGlobal)
-        self._nyGlobal = int(nyGlobal)
+        self._nx = int(nx)
+        self._ny = int(ny)
 
         # switches between numpy and theano.tensor as needed
         self._math = np
 
     @property
     def nx(self):
-        return self._ixEnd - self._ixStart
+        return self._nx
 
     @property
     def ny(self):
-        return self._iyEnd - self._iyStart
+        return self._ny
 
     # -------------------------------------------------------------------- #
     #                             array utilities                          #
