@@ -102,12 +102,20 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
     #                           main event loop                             #
     # --------------------------------------------------------------------- #
 
+    locals_with_V_ghost = locals()
+    locals_with_V_ghost['V'] = _V_with_ghost
+
     while True:
         varKey, varIndex, expression, data, wantResult = commandPipe.recv()
         try:
             if varKey == 'KILL':
                 return
-            elif varKey is None:
+            try:
+                result = eval(expression, {}, locals_with_V_ghost)
+            except KeyError:
+                result = eval(expression, {}, locals())
+
+            if varKey is None:
                 result = eval(expression, {}, locals())
                 if wantResult:
                     commandPipe.send(result)
@@ -158,6 +166,8 @@ class CommandPipe(object):
             p.send(('KILL', None, None, None, None))
 
 
+# ---------------------------------------------------------------------------- #
+
 def assign_i_ranges(nx, ny, nxWorkers, nyWorkers):
     'return a tuple of ((ixStart, ixEnd), (iyStart, iyEnd)) quads'
     def assign_1d_ranges(n, nRanges):
@@ -168,6 +178,8 @@ def assign_i_ranges(nx, ny, nxWorkers, nyWorkers):
     iyRanges = assign_1d_ranges(ny, nyWorkers)
     return tuple(itertools.product(ixRanges, iyRanges))
 
+
+# ---------------------------------------------------------------------------- #
 
 def make_comm_arrays(nxWorkers, nyWorkers):
     '''
@@ -215,7 +227,7 @@ class grid2d(object):
 
         self._nx = int(nx)
         self._ny = int(ny)
-        
+
         self._nxWorkers = int(nxWorkers)
         self._nyWorkers = int(nyWorkers)
 
@@ -275,16 +287,16 @@ class grid2d(object):
             return psarray_theano(self, workerCommand, data, shape, dependents)
 
     def zeros(self, shape):
-        expr = 'math.zeros(prepend_shape({0}))'
-        return self._array(expr.format(str(np.empty(shape).shape)), shape)
+        expr = 'math.zeros({0})'.format(str(np.empty(shape).shape))
+        return self._array(expr, shape)
 
     def ones(self, shape):
-        expr = 'math.ones(prepend_shape({0}))'
-        return self._array(expr.format(str(np.empty(shape).shape)), shape)
+        expr = 'math.ones({0})'.format(str(np.empty(shape).shape))
+        return self._array(expr, shape)
 
     def random(self, shape=()):
-        expr = 'math.random.random(preppend_shape({0}))'
-        return self._array(expr.format(str(np.empty(shape).shape)), shape)
+        expr = 'math.random({0})'.format(str(np.empty(shape).shape))
+        return self._array(expr, shape)
 
     # def load(self, filename):
     #     assert self._math is np
@@ -293,30 +305,31 @@ class grid2d(object):
 
     @property
     def i(self):
-        expr = '''math.outer(math.arange(ixStart, ixEnd),
-                            math.ones(iyEnd - iyStart))'''
-        return self._array(expr, ())
+        #expr = 'math.i'
+        #outer(math.arange(ixStart, ixEnd),
+        #                     math.ones(iyEnd - iyStart))'''
+        return self._array('math.i', ())
 
     @property
     def j(self):
-        expr = '''math.outer(math.ones(ixEnd - ixStart),
-                            math.arange(iyStart, iyEnd))'''
-        return self._array(expr, ())
+        # expr = '''math.outer(math.ones(ixEnd - ixStart),
+        #                     math.arange(iyStart, iyEnd))'''
+        return self._array('math.j', ())
 
     # -------------------------------------------------------------------- #
     #                        array transformations                         #
     # -------------------------------------------------------------------- #
 
     def log(self, x):
-        expr = 'math.log(V[{0}])'
-        return self._array(expr.format(x._key), x.shape, dependents=(x,))
+        expr = 'math.log({0})'.format(x._key)
+        return self._array(expr, x.shape, dependents=(x,))
 
     def exp(self, x):
-        expr = 'math.exp(V[{0}])'
-        return self._array(expr.format(x._key), x.shape, dependents=(x,))
+        expr = 'math.exp({0})'.format(x._key)
+        return self._array(expr, x.shape, dependents=(x,))
 
     def sin(self, x):
-        expr = 'math.sin(V[{0}])'
+        expr = 'math.sin(V[{0}])' #TODO: HERE
         return self._array(expr.format(x._key), x.shape, dependents=(x,))
 
     def cos(self, x):
@@ -423,22 +436,22 @@ class psarray_base(object):
     @property
     def x_p(self):
         return self.grid._array('x_p({0})'.format(self._key), self.shape,
-		 dependents=(self,))
+            dependents=(self,))
 
     @property
     def x_m(self):
         return self.grid._array('x_m({0})'.format(self._key), self.shape,
-		 dependents=(self,))
+            dependents=(self,))
 
     @property
     def y_p(self):
         return self.grid._array('y_p({0})'.format(self._key), self.shape,
-		 dependents=(self,))
+         dependents=(self,))
 
     @property
     def y_m(self):
         return self.grid._array('y_m({0})'.format(self._key), self.shape,
-		 dependents=(self,))
+         dependents=(self,))
 
     # -------------------------------------------------------------------- #
     #                         algorithmic operations                       #
@@ -446,7 +459,7 @@ class psarray_base(object):
 
     def __neg__(self):
         return self.grid._array('-V[{0}]'.format(self._key), self.shape,
-		 dependents=(self,))
+         dependents=(self,))
 
     def __radd__(self, a):
         return self.__add__(a)
@@ -626,7 +639,7 @@ class psarray_numpy(psarray_base):
     is not critical. Operations are evaluated eagerly.
     '''
     def __init__(self, grid, expression, data, shape):
-	psarray_base.__init__(self, grid, expression, data, shape)
+        psarray_base.__init__(self, grid, expression, data, shape)
         grid._commandPipe.assign_async(self._key, expression, data)
 
     # -------------------------------------------------------------------- #
@@ -663,7 +676,7 @@ class psarray_numpy(psarray_base):
 
 
 #==============================================================================#
-#                        psarray class with numpy backend                      #
+#                        psarray class with theano backend                     #
 #==============================================================================#
 
 class psarray_theano(psarray_base):
@@ -672,8 +685,10 @@ class psarray_theano(psarray_base):
     calculations. Operations are evaluated after compiled and involked.
     '''
     def __init__(self, grid, expression, data, shape, dependents):
-	psarray_base.__init__(self, grid, expression, data, shape)
-        grid._commandPipe.assign_async(self._key, expression, data)
+        psarray_base.__init__(self, grid, expression, data, shape)
+        self._expression = expression
+        self._dependents = dependents
+
 
 #==============================================================================#
 #                                  unit tests                                  #
@@ -709,12 +724,12 @@ class _Grid2dHelperFunctionsTest(unittest.TestCase):
         (p0_xm, p0_xp), (p0_ym, p0_yp) = arr[0][1]
         (p1_xm, p1_xp), (p1_ym, p1_yp) = arr[1][1]
         (p2_xm, p2_xp), (p2_ym, p2_yp) = arr[2][1]
-        
+
         p0_xm.send(0)
         self.assertEqual(p2_xp.recv(), 0)
         p1_xp.send(1)
         self.assertEqual(p2_xm.recv(), 1)
-        
+
         p0_ym.send(100)
         self.assertEqual(p0_yp.recv(), 100)
         p1_yp.send(101)
