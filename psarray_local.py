@@ -463,7 +463,7 @@ class psc_compile(object):
         grid._math = T
 
         tensor_dim = u_np.ndim + 2
-        input_data = T.TensorType('float64', (False,) * tensor_dim)()
+        input_data = T.tensor('float64', (False,) * tensor_dim)
 
         u_theano = grid._array(input_data.copy(), u_np.shape)
         ret = self._function(u_theano, *args, **kargs)
@@ -481,13 +481,13 @@ class psc_compile(object):
         grid._math = T
 
         tensor_dim = u_np.ndim + 2
-        input_data = T.TensorType('float64', (False,) * tensor_dim)()
+        input_data = T.tensor('float64', (False,) * tensor_dim)
 
         u_theano = grid._array(input_data.copy(), u_np.shape)
         ret = self._function(u_theano, *args, **kargs)
 
         tensor_dim = ret.ndim + 2
-        ret_adjoint = T.TensorType('float64', (False,) * tensor_dim)()
+        ret_adjoint = T.tensor('float64', (False,) * tensor_dim)
         J = (ret._data * ret_adjoint).sum()
         input_adjoint = T.grad(J, input_data)
 
