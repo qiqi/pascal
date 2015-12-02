@@ -157,7 +157,11 @@ def copy(a):
 i = psa(T.tensor('float64', (False,) * 2), True)
 j = psa(T.tensor('float64', (False,) * 2), True)
 
-def psa_compile(func, inputs, args=(), argv={}, with_ij=True):
+def ij_np(i0, i1, j0, j1):
+    return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
+           np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
+
+def psa_compile(func, inputs=(), args=(), argv={}, with_ij=True):
     np2theano = lambda a: T.Tensor('float64', (False,) * a.ndim)()
     input_list = [inputs] if hasattr(inputs, 'ndim') else list(inputs)
     theano_inputs = [np2theano(a) for a in input_list]
@@ -165,8 +169,10 @@ def psa_compile(func, inputs, args=(), argv={}, with_ij=True):
 
     if hasattr(inputs, 'ndim'):
         psa_outputs = func(psa_inputs[0], *args, **argv)
-    else:
+    elif len(inputs):
         psa_outputs = func(psa_inputs, *args, **argv)
+    else:
+        psa_outputs = func(*args, **argv)
 
     if hasattr(psa_outputs, 'tensor'):
         theano_outputs = psa_outputs.tensor
@@ -174,9 +180,9 @@ def psa_compile(func, inputs, args=(), argv={}, with_ij=True):
         theano_outputs = [a.tensor for a in psa_outputs]
 
     if with_ij:
-        return theano.function(theano_inputs + [i, j], theano_outputs)
-    else:
-        return theano.function(theano_inputs, theano_outputs)
+        theano_inputs += [i.tensor, j.tensor]
+    return theano.function(theano_inputs, theano_outputs,
+            on_unused_input='ignore')
 
 # ============================================================================ #
 #                                 unit tests                                   #
@@ -221,6 +227,25 @@ class TestOperators(unittest.TestCase):
         vDiv = f(*v)
         self.assertEqual(vDiv.shape, (2,3))
         self.assertAlmostEqual(abs(vDiv - 5).max(), 0)
+
+class TestIJ(unittest.TestCase):
+    def testLaplacianByIpJ(self):
+        def laplacian(a):
+            return (a.x_p + a.x_m + a.y_p + a.y_m - 4 * a) / 4 * (i + j)
+        a = np.ones([4,5])
+        f = psa_compile(laplacian, a)
+        fa = f(a, *ij_np(0,a.shape[0],0,a.shape[1]))
+        self.assertEqual(fa.shape, (2,3))
+        self.assertAlmostEqual(abs(fa).max(), 0)
+
+    def testDivYX(self):
+        def divYX():
+            x, y = i * 0.1, j * 0.2
+            return y.x_p - y.x_m + x.y_p - x.y_m
+        f = psa_compile(divYX)
+        fa = f(*ij_np(0,4,0,6))
+        self.assertEqual(fa.shape, (2,4))
+        self.assertAlmostEqual(abs(fa).max(), 0)
 
 if __name__ == '__main__':
     unittest.main()
