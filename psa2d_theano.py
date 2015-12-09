@@ -105,27 +105,13 @@ class psa(object):
 
     @property
     def T(self):
-        return self.transpose()
+        return transpose(self)
 
     def transpose(self, axes=None):
-        if axes is None:
-            axes = tuple(reversed(range(self.ndim)))
-        return psa(self.tensor.transpose((0, 1) + tuple(i+2 for i in axes)),
-                   self.has_ghost)
+        return transpose(self, axes)
 
-    def reshape(self, x, shape):
-        shape = list(np.empty(shape).shape)
-        tensor_shape = T.join(0, x.tensor.shape[:2], shape)
-        return psa(x.tensor.reshape(tensor_shape), x.has_ghost)
-
-    def roll(self, x, shift, axis=None):
-        if axis is None:
-            data = x._data.reshape((self.nx, self.ny, -1))
-            data = self._math.roll(data, shift)
-            data = data.reshape(self._preppend_shape(x.shape, x))
-        else:
-            data = self._math.roll(x._data, shift, axis+2)
-        return self._array(data, x.shape)
+    def reshape(self, shape):
+        return reshape(self, shape)
 
     def copy(self):
         return copy(self)
@@ -155,6 +141,38 @@ class psa(object):
 
 
 # ============================================================================ #
+#                             data transformations                             #
+# ============================================================================ #
+
+def transpose(x, axes=None):
+    if axes is None:
+        axes = tuple(reversed(range(x.ndim)))
+    return psa(x.tensor.transpose((0, 1) + tuple(i+2 for i in axes)),
+               x.has_ghost)
+
+def reshape(x, shape):
+    shape = list(shape)
+    ndim = len(shape) + 2
+    tensor_shape = T.join(0, x.tensor.shape[:2], shape)
+    return psa(x.tensor.reshape(tensor_shape, ndim=ndim), x.has_ghost)
+
+def roll(x, shift, axis=None):
+    if axis is None:
+        tensor_shape = T.join(0, x.tensor.shape[:2], [-1])
+        new_tensor = x.tensor.reshape(tensor_shape, ndim=3)
+        new_tensor = T.roll(new_tensor, shift, 2)
+        new_tensor = new_tensor.reshape(x.tensor.shape, ndim=x.tensor.ndim)
+    else:
+        new_tensor = T.roll(x.tensor, shift, axis+2)
+    return psa(new_tensor, x.has_ghost)
+
+def copy(a):
+    assert _is_like_psa(a)
+    return psa(a.tensor, a.has_ghost)
+    # return psa(T.copy(a.tensor), a.has_ghost)
+
+
+# ============================================================================ #
 #                            mathematical functions                            #
 # ============================================================================ #
 
@@ -169,11 +187,6 @@ def cos(a):
 def exp(a):
     assert _is_like_psa(a)
     return psa(T.sin(a.tensor), a.has_ghost)
-
-def copy(a):
-    assert _is_like_psa(a)
-    return psa(a.tensor, a.has_ghost)
-    # return psa(T.copy(a.tensor), a.has_ghost)
 
 
 # ============================================================================ #
@@ -261,6 +274,8 @@ class TestOperators(unittest.TestCase):
         self.assertEqual(vDiv.shape, (2,3))
         self.assertAlmostEqual(abs(vDiv - 5).max(), 0)
 
+# ---------------------------------------------------------------------------- #
+
 class TestIJ(unittest.TestCase):
     def testLaplacianByIpJ(self):
         def laplacian(a):
@@ -280,8 +295,10 @@ class TestIJ(unittest.TestCase):
         self.assertEqual(fa.shape, (2,4))
         self.assertAlmostEqual(abs(fa).max(), 0)
 
+# ---------------------------------------------------------------------------- #
+
 class TestTransforms(unittest.TestCase):
-    def testTranspose(self):
+    def testTranspose1(self):
         def xtm1(a):
             return a.T - 1
         a = np.ones([4,5,2,3])
@@ -290,13 +307,62 @@ class TestTransforms(unittest.TestCase):
         self.assertEqual(fa.shape, (4,5,3,2))
         self.assertAlmostEqual(abs(fa).max(), 0)
 
-        def xtp1(a):
-            return a.transpose([2,3,1,0]) + 1
-        a = -np.ones([2,3,4,5,6,7])
-        f = psa_compile(xtp1, a, with_ij=False)
+        a = np.zeros([2,3,2,1]) + np.arange(3)
+        self.assertEqual(a.shape, (2,3,2,3))
+        fa = f(a)
+        self.assertEqual(fa.shape, (2,3,3,2))
+        self.assertAlmostEqual(abs(fa[:,:,0,:] + 1).max(), 0)
+        self.assertAlmostEqual(abs(fa[:,:,1,:]).max(), 0)
+        self.assertAlmostEqual(abs(fa[:,:,2,:] - 1).max(), 0)
+
+    def testTranspose2(self):
+        def xtm1(a):
+            return a.transpose([2,3,1,0]) - 1
+        a = np.ones([2,3,4,5,6,7])
+        f = psa_compile(xtm1, a, with_ij=False)
         fa = f(a)
         self.assertEqual(fa.shape, (2,3,6,7,5,4))
         self.assertAlmostEqual(abs(fa).max(), 0)
+
+        a = np.ones([2,3,4,5,6,1]) + np.arange(7)
+        self.assertEqual(a.shape, (2,3,4,5,6,7))
+        fa = f(a)
+        self.assertEqual(fa.shape, (2,3,6,7,5,4))
+        for i in range(7):
+            self.assertAlmostEqual(abs(fa[:,:,:,i] - i).max(), 0)
+
+    def testReshape(self):
+        def xrm1(a):
+            return a.reshape([3,-1]) - 1
+        a = np.ones([4,5,2,3,4]) + np.arange(4)
+        f = psa_compile(xrm1, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, (4,5,3,8))
+        for i in range(4):
+            self.assertAlmostEqual(abs(fa[:,:,:,i] - i).max(), 0)
+            self.assertAlmostEqual(abs(fa[:,:,:,i+4] - i).max(), 0)
+
+    def testRoll1(self):
+        def xrm1(a):
+            return roll(a, 1) - 1
+        a = np.ones([4,5,2,3]) + np.arange(2)[:,np.newaxis]
+        f = psa_compile(xrm1, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, a.shape)
+        self.assertAlmostEqual(abs(fa[:,:,0,1:]).max(), 0)
+        self.assertAlmostEqual(abs(fa[:,:,1,0]).max(), 0)
+        self.assertAlmostEqual(abs(fa[:,:,0,0] - 1).max(), 0)
+        self.assertAlmostEqual(abs(fa[:,:,1,1:] - 1).max(), 0)
+
+    def testRoll2(self):
+        def xr0m1(a):
+            return roll(a, 1, axis=0) - 1
+        a = np.ones([4,5,2,3]) + np.arange(2)[:,np.newaxis]
+        f = psa_compile(xr0m1, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, a.shape)
+        self.assertAlmostEqual(abs(fa[:,:,0,:] - 1).max(), 0)
+        self.assertAlmostEqual(abs(fa[:,:,1,:]).max(), 0)
 
 # ============================================================================ #
 #                                                                              #
