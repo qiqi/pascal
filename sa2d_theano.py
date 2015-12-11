@@ -16,6 +16,23 @@ def _is_like_sa(a):
     '''
     return hasattr(a, 'tensor') and hasattr(a, 'has_ghost')
 
+def _promote_ndim(t, ndim):
+    if t.ndim == ndim:
+        return t
+    else:
+        assert t.ndim < ndim
+        pad_dim = T.ones(ndim - t.ndim, int)
+        new_shape = T.join(0, t.shape[:2], pad_dim, t.shape[2:])
+        pt = T.reshape(t, new_shape, ndim=ndim)
+
+        broadcastable = t.broadcastable[:2] + (True,) * (ndim - t.ndim) \
+                      + t.broadcastable[2:]
+        pt = T.patternbroadcast(pt, broadcastable)
+        return pt
+
+def _is_broadcastable(t):
+    return t.broadcastable[0] and t.broadcastable[1]
+
 def _binary_op(op, a, b):
     '''
     Perform operations between arrays with or without ghost cells.
@@ -23,23 +40,16 @@ def _binary_op(op, a, b):
     When either array has no ghost cell, the resulting array has no ghost cell.
     This behavior is the primary functionality this module tries to achieve.
     '''
-    def _promote_ndim(at, bt):
-        if at.ndim == bt.ndim:
-            return at, bt
-        elif at.ndim < bt.ndim:
-            at, bt = bt, at
-        assert(at.ndim > bt.ndim)
-        pad_dim = T.ones(at.ndim - bt.ndim, int)
-        new_shape = T.join(0, bt.shape[0:2], pad_dim, bt.shape[2:])
-        return at, T.reshape(bt, new_shape, ndim=at.ndim)
-
     if _is_like_sa(a) and _is_like_sa(b):
-        if a.has_ghost == b.has_ghost:  # both have or do not have ghost
-            at, bt = _promote_ndim(a.tensor, b.tensor)
-        elif a.has_ghost:  # b does not have ghost
-            at, bt = _promote_ndim(a.tensor[1:-1,1:-1], b.tensor)
-        else:  # a has ghost but b does not have ghost
-            at, bt = _promote_ndim(a.tensor, b.tensor[1:-1,1:-1])
+        ndim = max(a.ndim, b.ndim) + 2
+        at = _promote_ndim(a.tensor, ndim)
+        bt = _promote_ndim(b.tensor, ndim)
+        if a.has_ghost and not b.has_ghost:
+            if not _is_broadcastable(at):
+                at = at[1:-1,1:-1]
+        elif not a.has_ghost and b.has_ghost:
+            if not _is_broadcastable(bt):
+                bt = bt[1:-1,1:-1]
         shape = op(np.ones(a.shape), np.ones(b.shape)).shape
         return stencil_array(shape, op(at, bt), a.has_ghost and b.has_ghost)
     elif _is_like_sa(a):
@@ -48,8 +58,6 @@ def _binary_op(op, a, b):
     elif _is_like_sa(b):
         shape = op(a, np.ones(b.shape)).shape
         return stencil_array(shape, op(a, b.tensor), b.has_ghost)
-    else:
-        return op(a, b)
 
 
 # ============================================================================ #
@@ -83,6 +91,9 @@ class stencil_array(object):
         return self.shape[0]
 
     # --------------------------- operations ------------------------------ #
+
+    # asks ndarray to use the __rops__ defined in this class
+    __array_priority__ = 100
 
     def __add__(self, a):
         return _binary_op(operator.add, self, a)
@@ -155,22 +166,34 @@ class stencil_array(object):
     @property
     def x_p(self):
         self._assert_has_ghost()
-        return stencil_array(self.shape, self.tensor[2:,1:-1], False)
+        if _is_broadcastable(self.tensor):
+            return self
+        else:
+            return stencil_array(self.shape, self.tensor[2:,1:-1], False)
 
     @property
     def x_m(self):
         self._assert_has_ghost()
-        return stencil_array(self.shape, self.tensor[:-2,1:-1], False)
+        if _is_broadcastable(self.tensor):
+            return self
+        else:
+            return stencil_array(self.shape, self.tensor[:-2,1:-1], False)
 
     @property
     def y_p(self):
         self._assert_has_ghost()
-        return stencil_array(self.shape, self.tensor[1:-1,2:], False)
+        if _is_broadcastable(self.tensor):
+            return self
+        else:
+            return stencil_array(self.shape, self.tensor[1:-1,2:], False)
 
     @property
     def y_m(self):
         self._assert_has_ghost()
-        return stencil_array(self.shape, self.tensor[1:-1,:-2], False)
+        if _is_broadcastable(self.tensor):
+            return self
+        else:
+            return stencil_array(self.shape, self.tensor[1:-1,:-2], False)
 
     # ---------------------------- indexing ------------------------------- #
 
@@ -182,22 +205,27 @@ class stencil_array(object):
         return ind
 
     def __getitem__(self, ind):
-        tensor_ind = _data_index_(ind)
         shape = np.empty(self.shape)[ind].shape
+        tensor_ind = self._data_index_(ind)
         return stencil_array(shape, self.tensor[tensor_ind], self.has_ghost)
 
     def __setitem__(self, ind, a):
-        tensor_ind_self = _data_index_(ind)
-        if not _is_like_sa(a) or a.has_ghost == self.has_ghost:
-            self.tensor = T.set_subtensor(self.tensor[tensor_ind], a)
-            self.has_ghost = self.has_ghost
-        elif a.has_ghost:   # self has no ghost
-            self.tensor = T.set_subtensor(self.tensor[tensor_ind], a[1:-1,1:-1])
-            self.has_ghost = False
-        else:               # self has ghost but a does not
-            tensor_ind[0], tensor_ind[1] = slice(1,-1), slice(1,-1)
-            self.tensor = T.set_subtensor(self.tensor[tensor_ind], a)
-            self.has_ghost = False
+        sub_tensor = self.tensor[self._data_index_(ind)]
+        if not _is_like_sa(a):
+            self.tensor = T.set_subtensor(sub_tensor, a)
+        else:
+            a_tensor = _promote_ndim(a.tensor, sub_tensor.ndim)
+
+            if _is_broadcastable(sub_tensor):
+                sub_tensor = sub_tensor + 0 * a_tensor # broadcast sub_tensor
+
+            if a.has_ghost == self.has_ghost or _is_broadcastable(a_tensor):
+                self.tensor = T.set_subtensor(sub_tensor, a_tensor)
+            elif a.has_ghost:   # self has no ghost
+                self.tensor = T.set_subtensor(sub_tensor, a_tensor[1:-1,1:-1])
+            else:               # self has ghost but a does not
+                self.tensor = T.set_subtensor(sub_tensor[1:-1,1:-1], a_tensor)
+                self.has_ghost = False
 
 # ============================================================================ #
 #                             data transformations                             #
@@ -317,7 +345,7 @@ class TestOperators(unittest.TestCase):
 
     def testNonlinear(self):
         def nlLaplacian(a):
-            lapla = a.x_p + a.x_m + a.y_p + a.y_m - 4 * a
+            lapla = -4 * a + a.x_p + a.x_m + a.y_p + a.y_m
             return lapla * exp(a) / sin(a) * cos(a)
         a = np.ones([4,5])
         f = compile(nlLaplacian, a, with_ij=False)
@@ -346,6 +374,16 @@ class TestOperators(unittest.TestCase):
         vDiv = f(*v)
         self.assertEqual(vDiv.shape, (2,3))
         self.assertAlmostEqual(abs(vDiv - 5).max(), 0)
+
+    def testArbitrary(self):
+        def arb(a):
+            b = 3 + (a.x_p + a.x_m)
+            c = -1 - np.ones(6) * b
+            d = ones(6) ** (ones([5,6]) / c)
+            return d
+        a = np.ones([3,4,5,6])
+        f = compile(arb, a, with_ij=False)
+        self.assertEqual(f(a).shape, (1,2,5,6))
 
 # ---------------------------------------------------------------------------- #
 
@@ -458,7 +496,63 @@ class TestTransforms(unittest.TestCase):
 # ---------------------------------------------------------------------------- #
 
 class TestIndexing(unittest.TestCase):
-    pass
+    def testGetItem1(self):
+        def pick12(a):
+            return a[1,2]
+        a = np.ones([3,4,5,1]) + np.arange(6)
+        f = compile(pick12, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4))
+        self.assertAlmostEqual(abs(fa - a[:,:,1,2]).max(), 0)
+
+    def testGetItem2(self):
+        def pickRange(a):
+            return a[1:-1,1:-1]
+        a = np.ones([3,4,5,1]) + np.arange(6)
+        f = compile(pickRange, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4,3,4))
+        self.assertAlmostEqual(abs(fa - a[:,:,1:-1,1:-1]).max(), 0)
+
+    def testSetItem1(self):
+        def set12(a):
+            a[1,2] = 0
+            return a
+        a = np.ones([3,4,5,1]) + np.arange(6)
+        f = compile(set12, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4,5,6))
+        self.assertAlmostEqual(abs(fa[:,:,1,2]).max(), 0)
+        diff = fa - a
+        diff[:,:,1,2] = 0
+        self.assertAlmostEqual(abs(diff).max(), 0)
+
+    def testSetItem2(self):
+        def set12(a):
+            a[1,2] = 2 * a[1,2].x_p
+            return a
+        a = np.ones([3,4,5,1]) + np.arange(6)
+        f = compile(set12, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, (1,2,5,6))
+        self.assertAlmostEqual(abs(fa[:,:,1,2] - a[0,0,1,2] * 2).max(), 0)
+        diff = fa - a[0,0]
+        diff[:,:,1,2] = 0
+        self.assertAlmostEqual(abs(diff).max(), 0)
+
+    def testSetItem2(self):
+        def setRange(a):
+            b = a.y_p * 0
+            b[1:-1,1:-1] = sin(a[2,3])
+            return b
+        a = np.ones([3,4,5,1]) + np.arange(6)
+        f = compile(setRange, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, (1,2,5,6))
+        self.assertAlmostEqual(abs(fa[:,:,1:-1,1:-1] \
+                             - np.sin(a[0,0,2,3])).max(), 0)
+        fa[:,:,1:-1,1:-1] = 0
+        self.assertAlmostEqual(abs(fa).max(), 0)
 
 # ============================================================================ #
 #                                                                              #
