@@ -132,7 +132,7 @@ class stencil_array(object):
         return _binary_op(operator.pow, a, self)
 
     def __neg__(self):
-        return stencil_array(a.shape, -a.tensor, self.has_ghost)
+        return stencil_array(self.shape, -self.tensor, self.has_ghost)
 
     # ------------------------- math functions ---------------------------- #
 
@@ -215,16 +215,20 @@ class stencil_array(object):
             self.tensor = T.set_subtensor(sub_tensor, a)
         else:
             a_tensor = _promote_ndim(a.tensor, sub_tensor.ndim)
-
-            if _is_broadcastable(sub_tensor):
-                sub_tensor = sub_tensor + 0 * a_tensor # broadcast sub_tensor
+            if _is_broadcastable(self.tensor):
+                z = T.zeros_like(a_tensor)
+                while z.ndim > 2:
+                    z = z[:,:,0]
+                self.tensor = self.tensor + _promote_ndim(z, self.tensor.ndim)
+                sub_tensor = self.tensor[self._data_index_(ind)]
 
             if a.has_ghost == self.has_ghost or _is_broadcastable(a_tensor):
                 self.tensor = T.set_subtensor(sub_tensor, a_tensor)
             elif a.has_ghost:   # self has no ghost
                 self.tensor = T.set_subtensor(sub_tensor, a_tensor[1:-1,1:-1])
             else:               # self has ghost but a does not
-                self.tensor = T.set_subtensor(sub_tensor[1:-1,1:-1], a_tensor)
+                sub_tensor = self.tensor[1:-1,1:-1][self._data_index_(ind)]
+                self.tensor = T.set_subtensor(sub_tensor, a_tensor)
                 self.has_ghost = False
 
 # ============================================================================ #
@@ -293,11 +297,11 @@ def ij_np(i0, i1, j0, j1):
     return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
            np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
 
-def ones(shape):
+def ones(shape=()):
     shape = np.ones(shape).shape
     return stencil_array(shape, T.ones((1,1) + shape), has_ghost=True)
 
-def zeros(shape):
+def zeros(shape=()):
     shape = np.zeros(shape).shape
     return stencil_array(shape, T.zeros((1,1) + shape), has_ghost=True)
 
@@ -337,7 +341,9 @@ def compile(func, inputs=(), args=(), argv={}, with_ij=True):
 class TestOperators(unittest.TestCase):
     def testLaplacian(self):
         def laplacian(a):
-            return (a.x_p + a.x_m + a.y_p + a.y_m - 4 * a) / 4
+            z = zeros()
+            zz = (z.x_p + z.x_m + z.y_p + z.y_m - 4 * z) / 4
+            return (a.x_p + a.x_m + a.y_p + a.y_m - 4 * a) / 4 + zz
         a = np.ones([4,5])
         f = compile(laplacian, a, with_ij=False)
         self.assertEqual(f(a).shape, (2,3))
@@ -379,8 +385,9 @@ class TestOperators(unittest.TestCase):
         def arb(a):
             b = 3 + (a.x_p + a.x_m)
             c = -1 - np.ones(6) * b
-            d = ones(6) ** (ones([5,6]) / c)
-            return d
+            d = ones(6) ** (a / (ones([5,6]) / c))
+            e = b ** np.ones(6) ** (a / (np.ones([5,6]) / d))
+            return -d
         a = np.ones([3,4,5,6])
         f = compile(arb, a, with_ij=False)
         self.assertEqual(f(a).shape, (1,2,5,6))
@@ -485,7 +492,7 @@ class TestTransforms(unittest.TestCase):
 
     def testRoll2(self):
         def xr0m1(a):
-            return roll(a, 1, axis=0) - 1
+            return roll(a, 1, axis=0).copy() - 1
         a = np.ones([4,5,2,3]) + np.arange(2)[:,np.newaxis]
         f = compile(xr0m1, a, with_ij=False)
         fa = f(a)
@@ -514,6 +521,15 @@ class TestIndexing(unittest.TestCase):
         self.assertEqual(fa.shape, (3,4,3,4))
         self.assertAlmostEqual(abs(fa - a[:,:,1:-1,1:-1]).max(), 0)
 
+    def testGetItem3(self):
+        def pickLast(a):
+            return a[-1]
+        a = np.zeros([3,4,1]) + np.arange(5)
+        f = compile(pickLast, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4))
+        self.assertAlmostEqual(abs(fa - 4).max(), 0)
+
     def testSetItem1(self):
         def set12(a):
             a[1,2] = 0
@@ -540,7 +556,7 @@ class TestIndexing(unittest.TestCase):
         diff[:,:,1,2] = 0
         self.assertAlmostEqual(abs(diff).max(), 0)
 
-    def testSetItem2(self):
+    def testSetItem3(self):
         def setRange(a):
             b = a.y_p * 0
             b[1:-1,1:-1] = sin(a[2,3])
@@ -553,6 +569,28 @@ class TestIndexing(unittest.TestCase):
                              - np.sin(a[0,0,2,3])).max(), 0)
         fa[:,:,1:-1,1:-1] = 0
         self.assertAlmostEqual(abs(fa).max(), 0)
+
+    def testSetItem4(self):
+        def setToOnes(a):
+            a[1,2:4] = ones(2)
+            return a
+        a = np.ones([3,4,5,1]) + np.arange(6)
+        f = compile(setToOnes, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4,5,6))
+        self.assertAlmostEqual(abs(fa[:,:,1,2:4] - 1).max(), 0)
+
+    def testSetItem5(self):
+        def setToOnes(a):
+            b = zeros(4)
+            b[1:3] = a[1:3,0] * 2
+            a[0,:] = b
+            return a
+        a = np.ones([3,4,3,4]) + np.arange(4)
+        f = compile(setToOnes, a, with_ij=False)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4,3,4))
+        self.assertAlmostEqual(abs(fa[:,:,0,[0,3]]).max(), 0)
 
 # ============================================================================ #
 #                                                                              #
