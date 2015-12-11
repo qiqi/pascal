@@ -416,7 +416,8 @@ class psarray_base(object):
     #                               indexing                               #
     # -------------------------------------------------------------------- #
 
-    def _data_index_(self, ind):
+    @staticmethod
+    def _data_index_(ind):
         if not isinstance(ind, tuple):
             ind = (ind,)
         ind = (slice(None),) * 2 + ind
