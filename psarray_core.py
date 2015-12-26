@@ -98,7 +98,6 @@ class grid2d(object):
                 i = T.set_subtensor(i[0], nGlobal - 1)
         if iEnd == nGlobal:
 
-
     @property
     def i(self):
         i = self._math.arange(self._ixStart - 1, self._ixEnd + 1)
