@@ -12,6 +12,9 @@ import theano
 import theano.tensor as T
 import scipy.optimize
 
+
+# ============================================================================ #
+
 def _is_like_sa(a):
     '''
     Check attributes of stencil array object
@@ -20,6 +23,11 @@ def _is_like_sa(a):
         a.owner is None or hasattr(a.owner, 'access_neighbor')
     else:
         return False
+
+
+# ============================================================================ #
+#                                  Op  class                                   #
+# ============================================================================ #
 
 class Op(object):
     '''
@@ -47,6 +55,10 @@ class Op(object):
         assert len(input_objects) == len(self.inputs)
         return self.operation(*input_objects)
 
+
+# ============================================================================ #
+#                             stencil_array class                              #
+# ============================================================================ #
 
 class stencil_array(object):
     def __init__(self, shape, owner):
