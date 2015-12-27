@@ -38,7 +38,8 @@ class Op(object):
         operation: a function that takes a list of inputs as arguments
         inputs: a list of stencil array
     '''
-    def __init__(self, operation, inputs, access_neighbor=False, dummy_func=np.ones):
+    def __init__(self, operation, inputs, access_neighbor=False,
+                 dummy_func=np.ones):
         assert(all(_is_like_sa(inp) for inp in inputs))
 
         self.operation = operation
@@ -245,22 +246,23 @@ def zeros(shape=()):
 # ============================================================================ #
 
 class decompose(object):
-    @staticmethod
-    def _tidy_input(inp):
-        if hasattr(inp, 'shape'):
-            return stencil_array(inp.shape, None)
-        else:
-            return stencil_array(np.array(inp).shape, None)
-
     def _build_computational_graph(self, func, inputs):
         if not isinstance(inputs, tuple):
             inputs = (inputs,)
 
-        self.inputs = tuple(map(self._tidy_input, inputs))
+        def _tidy_input(inp):
+            if hasattr(inp, 'shape'):
+                return stencil_array(inp.shape, None)
+            else:
+                return stencil_array(np.array(inp).shape, None)
+
+        self.inputs = tuple(map(_tidy_input, inputs))
         self.outputs = func(self.inputs)
 
         if not isinstance(self.outputs, tuple):
             self.outputs = (self.outputs,)
+
+    # --------------------------------------------------------------------- #
 
     def _assign_id_to_variables(self):
         self.variables = []
@@ -274,6 +276,8 @@ class decompose(object):
                         set_variable_id(inp)
         for out in self.outputs:
             set_variable_id(out)
+
+    # --------------------------------------------------------------------- #
 
     def _build_linear_program(self):
         A_eq, A_lt, b_eq, b_lt = [], [], [], []
@@ -322,11 +326,15 @@ class decompose(object):
 
         self._linear_program = c, A_eq, A_lt, b_eq, b_lt
 
+    # --------------------------------------------------------------------- #
+
     def _solve_linear_program(self):
         c, A_eq, A_lt, b_eq, b_lt = self._linear_program
         self._linear_program_result = \
                 scipy.optimize.linprog(c, A_lt, b_lt, A_eq, b_eq)
         assert self._linear_program_result.sucess
+
+    # --------------------------------------------------------------------- #
 
     def _assign_lp_results_to_vars(self):
         self.numStages = self._linear_program_result.x[-1] + 1
@@ -338,14 +346,7 @@ class decompose(object):
             a.killStage = k[i]
             a.hasNeighbor = (g[i] == 0)
 
-    class Stage(object):
-        def __init__(self, variables, globalInputs, globalOutputs, k):
-            self.inputs, self.outputs = [], []
-            for a in variables:
-                if (a.createStage < k or a in globalInputs) and a.killStage >= k:
-                    self.inputs.append(a)
-                if a.createStage <= k and (a.killStage > k or a in globalOutputs):
-                    self.outputs.append(a)
+    # --------------------------------------------------------------------- #
 
     def __init__(self, func, inputs):
         self._build_computational_graph(func, inputs)
@@ -353,8 +354,70 @@ class decompose(object):
         self._build_linear_program()
         self._solve_linear_program()
         self._assign_lp_results_to_vars()
+
         self.stages = [Stage(self.variables, self.inputs, self.outputs, k) \
                        for k in range(self.numStages)]
+
+    # --------------------------------------------------------------------- #
+
+    def __iter__(self):
+        for s in self.stages:
+            yield s
+
+
+# ============================================================================ #
+#                                atomic stage                                  #
+# ============================================================================ #
+
+class Stage(object):
+    def __init__(self, variables, globalInputs, globalOutputs, k):
+        assert k >= 0 and k < self.numStages
+
+        isIn = lambda a : a.createStage < k and a.killStage >= k
+        isOut = lambda a : a.createStage <= k and a.killStage > k
+
+        self.inputs = tuple(filter(isIn, variables)) \
+            if k > 0 else globalInputs
+        self.outputs = tuple(filter(isOut, variables)) \
+            if k < self.numStages - 1 else globalOutputs
+
+        isK = lambda a : a.createStage == k and a.owner
+        remainingVariables = list(filter(isK, variables))
+        self.orderedVariables = []
+        while remainingVariables:
+            numRemoved = 0
+            for a in remainingVariables:
+                if all(b in self.orderedVariables or b in self.inputs \
+                        for b in a.owner.inputs):
+                    self.orderedVariables.append(a)
+                    remainingVariables.remove(a)
+                    numRemoved += 1
+            assert numRemoved > 0
+
+    # --------------------------------------------------------------------- #
+
+    def __call__(self, input_objects):
+        assert len(inputs) == len(self.inputs)
+        for a, a_obj in zip(self.inputs, input_objects):
+            assert not hasattr(a, '_obj')
+            a._obj = a_obj
+
+        for a in self.orderedVariables:
+            assert not hasattr(a, '_obj')
+            assert all(hasattr(b, '_obj') for b in a.owner.inputs)
+            input_objects = tuple(b._obj for b in a.owner.inputs)
+            a._obj = a.onwer.perform(input_objects)
+
+        assert all(hasattr(a, '_obj') for a in self.outputs)
+        output_objects = tuple(a._obj for a in self.outputs)
+
+        for a in self.inputs:
+            del a._obj
+        for a in self.orderedVariables:
+            del a._obj
+
+        return output_objects
+
 
 # ============================================================================ #
 #                                 unit tests                                   #
