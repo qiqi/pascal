@@ -20,7 +20,7 @@ def _is_like_sa(a):
     Check attributes of stencil array object
     '''
     if hasattr(a, 'owner'):
-        a.owner is None or hasattr(a.owner, 'access_neighbor')
+        return a.owner is None or hasattr(a.owner, 'access_neighbor')
     else:
         return False
 
@@ -62,7 +62,7 @@ class Op(object):
 # ============================================================================ #
 
 class stencil_array(object):
-    def __init__(self, shape, owner):
+    def __init__(self, shape=(), owner=None):
         self.shape = tuple(shape)
         self.owner = owner
 
@@ -146,22 +146,34 @@ class stencil_array(object):
         return copy(self)
 
     # ------------------------ neighbor access -------------------------- #
+    @staticmethod
+    class dummy_func(object):
+        def __init__(self, shape):
+            self.shape = shape
+            self.x_p = self
+            self.x_m = self
+            self.y_p = self
+            self.y_m = self
 
     @property
     def x_p(self):
-        return Op(lambda x : x.x_p, (self,), access_neighbor=True).output
+        return Op(lambda x : x.x_p, (self,), access_neighbor=True,
+                  dummy_func=self.dummy_func).output
 
     @property
     def x_m(self):
-        return Op(lambda x : x.x_m, (self,), access_neighbor=True).output
+        return Op(lambda x : x.x_m, (self,), access_neighbor=True,
+                  dummy_func=self.dummy_func).output
 
     @property
     def y_p(self):
-        return Op(lambda x : x.y_p, (self,), access_neighbor=True).output
+        return Op(lambda x : x.y_p, (self,), access_neighbor=True,
+                  dummy_func=self.dummy_func).output
 
     @property
     def y_m(self):
-        return Op(lambda x : x.y_m, (self,), access_neighbor=True).output
+        return Op(lambda x : x.y_m, (self,), access_neighbor=True,
+                  dummy_func=dummy_func).output
 
     # ---------------------------- indexing ------------------------------- #
 
@@ -173,7 +185,7 @@ class stencil_array(object):
         if self.owner:
             self.owner.output = copied_self
 
-        self.owner = Op(lambda x, a : x[ind] = a, (copied_self, a))
+        self.owner = Op(lambda x, a : x.__setitem__(ind, a), (copied_self, a))
         self.shape = self.owner.result.shape
         self.owner.output = self
 
@@ -226,9 +238,9 @@ def mean(a, axis=None):
 #                              source sa arrays                                #
 # ============================================================================ #
 
-i = stencil_array((), None)
-j = stencil_array((), None)
-_zero = stencil_array((), None)
+i = stencil_array()
+j = stencil_array()
+_zero = stencil_array()
 
 source_arrays = (i, j, _zero)
 
@@ -254,7 +266,7 @@ class decompose(object):
                 return stencil_array(np.array(inp).shape, None)
 
         self.inputs = tuple(map(_tidy_input, inputs))
-        self.outputs = func(self.inputs)
+        self.outputs = func(*self.inputs)
 
         if not isinstance(self.outputs, tuple):
             self.outputs = (self.outputs,)
@@ -264,8 +276,7 @@ class decompose(object):
     def _assign_id_to_variables(self):
         self.variables = []
         def set_variable_id(a):
-            assert _is_like_sa(a)
-            if not hasattr(a, '_variableId'):
+            if _is_like_sa(a) and not hasattr(a, '_variableId'):
                 a._variableId = len(self.variables)
                 self.variables.append(a)
                 if a.owner:
@@ -280,11 +291,11 @@ class decompose(object):
         A_eq, A_lt, b_eq, b_lt = [], [], [], []
 
         def add_eq(A_c, A_k, A_g, A_K, b):
-            A_eq.append(hstack([Ac, Ak, Ag]))
+            A_eq.append(hstack([A_c, A_k, A_g, A_K]))
             b_eq.append(b)
 
         def add_lt(A_c, A_k, A_g, A_K, b):
-            A_lt.append(hstack([Ac, Ak, Ag]))
+            A_lt.append(hstack([A_c, A_k, A_g, A_K]))
             b_lt.append(b)
 
         # build constraints
@@ -306,19 +317,20 @@ class decompose(object):
             add_lt(z, z, -e[i], 0, 0)
             add_lt(z, z, e[i], 0, 1)
 
-            if a.onwer:
+            if a.owner:
                 for b in a.owner.inputs:
-                    j = b._variableId
-                    add_lt(e[j] - e[i], z, z, 0, 0)
-                    add_lt(e[i], -e[j], z, 0, 0)
-                    if a.owner.access_neighbor:
-                        add_lt(e[j] - e[i], z, e[j] - e[i], 0, -1)
-                    else:
-                        add_lt(e[j] - e[i], z, e[j] - e[i], 0, 0)
+                    if _is_like_sa(b):
+                        j = b._variableId
+                        add_lt(e[j] - e[i], z, z, 0, 0)
+                        add_lt(e[i], -e[j], z, 0, 0)
+                        if a.owner.access_neighbor:
+                            add_lt(e[j] - e[i], z, e[j] - e[i], 0, -1)
+                        else:
+                            add_lt(e[j] - e[i], z, e[j] - e[i], 0, 0)
                 if a.owner.access_neighbor:
                     add_eq(z, z, e[i], 0, 1)
 
-        w = [a.size for a in self.variables]
+        w = np.array([a.size for a in self.variables])
         c = np.hstack([-w, w, z, 0])
 
         self._linear_program = c, A_eq, A_lt, b_eq, b_lt
@@ -329,12 +341,12 @@ class decompose(object):
         c, A_eq, A_lt, b_eq, b_lt = self._linear_program
         self._linear_program_result = \
                 scipy.optimize.linprog(c, A_lt, b_lt, A_eq, b_eq)
-        assert self._linear_program_result.sucess
+        assert self._linear_program_result.success
 
     # --------------------------------------------------------------------- #
 
     def _assign_lp_results_to_vars(self):
-        self.numStages = self._linear_program_result.x[-1] + 1
+        self.numStages = int(self._linear_program_result.x[-1]) + 1
         c, k, g = self._linear_program_result.x[:-1].reshape([3,-1])
         assert c.size == len(self.variables)
         for i, a in enumerate(self.variables):
@@ -352,8 +364,8 @@ class decompose(object):
         self._solve_linear_program()
         self._assign_lp_results_to_vars()
 
-        self.stages = [Stage(self.variables, self.inputs, self.outputs, k) \
-                       for k in range(self.numStages)]
+        self.stages = [Stage(self.variables, self.inputs, self.outputs,
+                             k, self.numStages) for k in range(self.numStages)]
 
     # --------------------------------------------------------------------- #
 
@@ -367,8 +379,8 @@ class decompose(object):
 # ============================================================================ #
 
 class Stage(object):
-    def __init__(self, variables, globalInputs, globalOutputs, k):
-        assert k >= 0 and k < self.numStages
+    def __init__(self, variables, globalInputs, globalOutputs, k, K):
+        assert k >= 0 and k < K
 
         isIn = lambda a : a.createStage < k and a.killStage >= k
         isOut = lambda a : a.createStage <= k and a.killStage > k
@@ -376,7 +388,7 @@ class Stage(object):
         self.inputs = tuple(filter(isIn, variables)) \
             if k > 0 else globalInputs
         self.outputs = tuple(filter(isOut, variables)) \
-            if k < self.numStages - 1 else globalOutputs
+            if k < K - 1 else globalOutputs
 
         isK = lambda a : a.createStage == k and a.owner
         remainingVariables = list(filter(isK, variables))
@@ -407,7 +419,7 @@ class Stage(object):
             assert not hasattr(a, '_obj')
             assert all(hasattr(b, '_obj') for b in a.owner.inputs)
             input_objects = tuple(b._obj for b in a.owner.inputs)
-            a._obj = a.onwer.perform(input_objects)
+            a._obj = a.owner.perform(input_objects)
 
         assert all(hasattr(a, '_obj') for a in self.outputs)
         output_objects = tuple(a._obj for a in self.outputs)
@@ -438,7 +450,7 @@ if __name__ == '__main__':
         dx, dt = 0.1, 0.05
         return u + dt * (u.x_m + u.x_p - 2 * u) / dx**2
 
-    heatStages = decompose(heat)
+    heatStages = decompose(heat, stencil_array())
     # unittest.main()
 
 ################################################################################
