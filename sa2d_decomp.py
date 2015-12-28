@@ -223,17 +223,14 @@ def mean(a, axis=None):
     pass #TODO
 
 # ============================================================================ #
-#                              atomic sa arrays                                #
+#                              source sa arrays                                #
 # ============================================================================ #
 
 i = stencil_array((), None)
 j = stencil_array((), None)
-
-i.atomic = True
-j.atomic = True
-
 _zero = stencil_array((), None)
-_zero.atomic = True
+
+source_arrays = (i, j, _zero)
 
 def ones(shape=()):
     return _zero + np.ones(shape)
@@ -388,7 +385,7 @@ class Stage(object):
             numRemoved = 0
             for a in remainingVariables:
                 if all(b in self.orderedVariables or b in self.inputs \
-                        for b in a.owner.inputs):
+                       or b in source_arrays for b in a.owner.inputs):
                     self.orderedVariables.append(a)
                     remainingVariables.remove(a)
                     numRemoved += 1
@@ -396,9 +393,13 @@ class Stage(object):
 
     # --------------------------------------------------------------------- #
 
-    def __call__(self, input_objects):
+    def __call__(self, input_objects, source_objects):
         assert len(inputs) == len(self.inputs)
         for a, a_obj in zip(self.inputs, input_objects):
+            assert not hasattr(a, '_obj')
+            a._obj = a_obj
+
+        for a, a_obj in zip(source_arrays, source_objects):
             assert not hasattr(a, '_obj')
             a._obj = a_obj
 
@@ -412,6 +413,8 @@ class Stage(object):
         output_objects = tuple(a._obj for a in self.outputs)
 
         for a in self.inputs:
+            del a._obj
+        for a in source_objects:
             del a._obj
         for a in self.orderedVariables:
             del a._obj
@@ -431,7 +434,12 @@ class TestOperators(unittest.TestCase):
 # ============================================================================ #
 
 if __name__ == '__main__':
-    unittest.main()
+    def heat(u):
+        dx, dt = 0.1, 0.05
+        return u + dt * (u.x_m + u.x_p - 2 * u) / dx**2
+
+    heatStages = decompose(heat)
+    # unittest.main()
 
 ################################################################################
 ################################################################################
