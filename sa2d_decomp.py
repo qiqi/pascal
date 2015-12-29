@@ -342,9 +342,11 @@ class decompose(object):
 
     def _solve_linear_program(self):
         c, A_eq, A_lt, b_eq, b_lt = self._linear_program
-        self._linear_program_result = \
-                scipy.optimize.linprog(c, A_lt, b_lt, A_eq, b_eq)
-        assert self._linear_program_result.success
+        opt = {'maxiter': 2000, 'disp': True}
+        self._linear_program_result = scipy.optimize.linprog(
+                c, A_lt, b_lt, A_eq, b_eq, options=opt)
+        if not self._linear_program_result.success:
+            print(self._linear_program_result)
 
     # --------------------------------------------------------------------- #
 
@@ -352,11 +354,15 @@ class decompose(object):
         self.numStages = int(self._linear_program_result.x[-1]) + 1
         c, k, g = self._linear_program_result.x[:-1].reshape([3,-1])
         assert c.size == len(self.variables)
+
         for i, a in enumerate(self.variables):
+            isInt = lambda x : abs(x - round(x)) < 1E-12
+            assert isInt(k[i]) and isInt(c[i]) and isInt(g[i])
+
             a = self.variables[i]
-            a.createStage = c[i]
-            a.killStage = k[i]
-            a.hasNeighbor = (g[i] == 0)
+            a.createStage = int(round(c[i]))
+            a.killStage = int(round(k[i]))
+            a.hasNeighbor = (round(g[i]) == 0)
 
     # --------------------------------------------------------------------- #
 
@@ -551,7 +557,9 @@ class TestSingleStage(unittest.TestCase):
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
 
-class TestTwoStage(unittest.TestCase):
+# ============================================================================ #
+
+class TestMultiStage(unittest.TestCase):
     def testHeat(self):
         def heatMidpoint(u):
             dx, dt = 0.1, 0.01
@@ -575,6 +583,85 @@ class TestTwoStage(unittest.TestCase):
         err = result - u0 * (1 - dudt + dudt**2 / 2)
         self.assertAlmostEqual(G.reduce_sum(err**2), 0)
 
+    def testKuramotoSivashinskyRk4(self):
+        def ks_dudt(u):
+            dx = 0.1
+            lu = (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
+            llu = (lu.x_m + lu.x_p + lu.y_m + lu.y_p - 4 * u) / dx**2
+            ux = (u.x_m - u.x_p) / dx
+            return -llu - lu - ux * u
+
+        def ks_rk4(u0):
+            dt = 0.01
+            du0 = dt * dudt(u0)
+            du1 = dt * dudt(u0 + 0.5 * du0)
+            du2 = dt * dudt(u0 + 0.5 * du1)
+            du3 = dt * dudt(u0 + du2)
+            return u + (du0 + 2 * du1 + 2 * du2 + du3) / 6
+
+        Ni, Nj = 16, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        ksStages = decompose(ks_rk4, stencil_array(),
+                source_objects=(G.i, G.j, G.zeros(())))
+
+        self.assertEquals(len(ksStages), 8)
+
+        # u0 = G.sin(G.i / Ni * np.pi * 2)
+        # result = stage1(stage0((u0,)))
+        # self.assertEquals(len(result), 1)
+        # result = result[0]
+
+        # dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
+        # err = result - u0 * (1 - dudt + dudt**2 / 2)
+        # self.assertAlmostEqual(G.reduce_sum(err**2), 0)
+
+
+# ============================================================================ #
+
+class TestTheano(unittest.TestCase):
+    def testHeat(self):
+        def heatMidpoint(u):
+            dx, dt = 0.1, 0.01
+            uh = u + 0.5 * dt * (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
+            return u + dt * (uh.x_m + uh.x_p + uh.y_m + uh.y_p - 4 * uh) / dx**2
+
+        import sa2d_theano
+        heatStages = decompose(heatMidpoint, stencil_array(),
+                source_objects=(sa2d_theano.i, sa2d_theano.j,
+                                sa2d_theano.zeros(())))
+
+        stage0, stage1 = heatStages
+
+        Ni, Nj = 8, 8
+        i, j = sa2d_theano.ij_np(-1, Ni + 1, -1, Nj + 1)
+        u0 = np.sin(i / Ni * np.pi * 2)
+        compiled_stage0 = sa2d_theano.compile(stage0, (u0,))
+        stage0_out = compiled_stage0(u0, i, j)
+
+        stage1_in = []
+        for a, val in zip(stage0.outputs, stage0_out):
+            if a.hasNeighbor:
+                stage1_in.append(val)
+            else:
+                val_with_nbr = np.zeros((Ni + 2, Nj + 2) + val.shape[2:])
+                val_with_nbr[1:-1,1:-1] = val
+                val_with_nbr[0,1:-1] = val[-1,:]
+                val_with_nbr[-1,1:-1] = val[0,:]
+                val_with_nbr[1:-1,0] = val[:,-1]
+                val_with_nbr[1:-1,-1] = val[:,0]
+                stage1_in.append(val_with_nbr)
+
+        stage1_in = tuple(stage1_in)
+        compiled_stage1 = sa2d_theano.compile(stage1, stage1_in)
+        stage1_out = compiled_stage1(*(stage1_in + (i, j)))
+        self.assertEqual(len(stage1_out), 1)
+        u1 = stage1_out[0]
+
+        dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
+        err = u1 - u0[1:-1,1:-1] * (1 - dudt + dudt**2 / 2)
+
+        self.assertAlmostEqual(0, np.abs(err).max())
+
 # ============================================================================ #
 #                                                                              #
 # ============================================================================ #
@@ -582,7 +669,29 @@ class TestTwoStage(unittest.TestCase):
 if __name__ == '__main__':
     import sa2d_single_thread
 
-    unittest.main()
+    def ks_dudt(u):
+        dx = 0.1
+        lu = (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
+        llu = (lu.x_m + lu.x_p + lu.y_m + lu.y_p - 4 * u) / dx**2
+        ux = (u.x_m - u.x_p) / dx
+        return -llu - lu - ux * u
+
+    def ks_rk4(u0):
+        dt = 0.01
+        du0 = dt * ks_dudt(u0)
+        du1 = dt * ks_dudt(u0 + 0.5 * du0)
+        du2 = dt * ks_dudt(u0 + 0.5 * du1)
+        du3 = dt * ks_dudt(u0 + du2)
+        return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
+
+    Ni, Nj = 16, 8
+    G = sa2d_single_thread.grid2d(Ni, Nj)
+    ksStages = decompose(ks_rk4, stencil_array(),
+            source_objects=(G.i, G.j, G.zeros(())))
+
+    assert len(ksStages) == 8
+
+    # unittest.main()
 
 ################################################################################
 ################################################################################
