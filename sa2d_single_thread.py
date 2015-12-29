@@ -4,6 +4,7 @@
 #                                                                              #
 ################################################################################
 
+import sys
 import numbers
 import unittest
 import numpy as np
@@ -161,6 +162,7 @@ class psarray_base(object):
         assert grid.ny > 0
         self._data = data
         self._shape = shape
+        self._module = grid
 
     def copy(self):
         return self.grid.copy(self)
@@ -355,38 +357,39 @@ class psarray_base(object):
 #                           replace numpy operations                           #
 #==============================================================================#
 
+def add(x1, x2, out=None):
+    if isinstance(x2, psarray_base):
+        return x2.__add__(x1)
+    else:
+        return np.add(x1, x2, out)
+
+def subtract(x1, x2, out=None):
+    if isinstance(x2, psarray_base):
+        return (-x2).__add__(x1)
+    else:
+        return np.subtract(x1, x2, out)
+
+def multiply(x1, x2, out=None):
+    if isinstance(x2, psarray_base):
+        return x2.__mul__(x1)
+    else:
+        return np.multiply(x1, x2, out)
+
+def true_divide(x1, x2, out=None):
+    if isinstance(x2, psarray_base):
+        return (x2**(-1)).__mul__(x1)
+    else:
+        return np.true_divide(x1, x2, out)
+
 if np.set_numeric_ops()['add'] == np.add:
-    def _add(x1, x2, out=None):
-        if isinstance(x2, psarray_base):
-            return x2.__add__(x1)
-        else:
-            return np.add(x1, x2, out)
-    np.set_numeric_ops(add=_add)
-
+    np.set_numeric_ops(add=add)
 if np.set_numeric_ops()['subtract'] == np.subtract:
-    def _sub(x1, x2, out=None):
-        if isinstance(x2, psarray_base):
-            return (-x2).__add__(x1)
-        else:
-            return np.subtract(x1, x2, out)
-    np.set_numeric_ops(subtract=_sub)
-
+    np.set_numeric_ops(subtract=subtract)
 if np.set_numeric_ops()['multiply'] == np.multiply:
-    def _mul(x1, x2, out=None):
-        if isinstance(x2, psarray_base):
-            return x2.__mul__(x1)
-        else:
-            return np.multiply(x1, x2, out)
-    np.set_numeric_ops(multiply=_mul)
-
+    np.set_numeric_ops(multiply=multiply)
 if np.set_numeric_ops()['true_divide'] == np.true_divide:
-    def _div(x1, x2, out=None):
-        if isinstance(x2, psarray_base):
-            return (x2**(-1)).__mul__(x1)
-        else:
-            return np.true_divide(x1, x2, out)
-    np.set_numeric_ops(divide=_div)
-    np.set_numeric_ops(true_divide=_div)
+    np.set_numeric_ops(divide=_true_divide)
+    np.set_numeric_ops(true_divide=true_divide)
 
 #==============================================================================#
 #                        psarray class with numpy backend                      #

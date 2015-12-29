@@ -4,7 +4,7 @@
 #                                                                              #
 # ============================================================================ #
 
-import copy
+import copy as copymodule
 import unittest
 import operator
 import numpy as np
@@ -25,6 +25,13 @@ def _is_like_sa(a):
         return False
 
 
+def _infer_module(a):
+    if isinstance(a, np.ndarray):
+        return np
+    else:
+        return a._module
+
+
 # ============================================================================ #
 #                                  Op  class                                   #
 # ============================================================================ #
@@ -40,13 +47,11 @@ class Op(object):
     '''
     def __init__(self, operation, inputs, access_neighbor=False,
                  dummy_func=np.ones):
-        assert(all(_is_like_sa(inp) for inp in inputs))
-
         self.operation = operation
-        self.inputs = inputs
+        self.inputs = copymodule.copy(tuple(inputs))
 
         produce_dummy = lambda a : dummy_func(a.shape) if _is_like_sa(a) else a
-        dummy_inputs = tuple(produce_dummy(a) for a in inputs)
+        dummy_inputs = tuple(produce_dummy(a) for a in self.inputs)
         shape = operation(*dummy_inputs).shape
 
         self.access_neighbor = access_neighbor
@@ -173,15 +178,15 @@ class stencil_array(object):
     @property
     def y_m(self):
         return Op(lambda x : x.y_m, (self,), access_neighbor=True,
-                  dummy_func=dummy_func).output
+                  dummy_func=self.dummy_func).output
 
     # ---------------------------- indexing ------------------------------- #
 
     def __getitem__(self, ind):
-        return Op(lambda x : x[copy.copy(ind)], (self,)).output
+        return Op(lambda x : x[copymodule.copy(ind)], (self,)).output
 
     def __setitem__(self, ind, a):
-        copied_self = copy.copy(self)
+        copied_self = copymodule.copy(self)
         if self.owner:
             self.owner.output = copied_self
 
@@ -195,21 +200,20 @@ class stencil_array(object):
 # ============================================================================ #
 
 def transpose(x, axes=None):
-    mod = x._module
-    return Op(lambda x : mod.transpose(x, copy.copy(axes))).output
+    axes = copymodule.copy(axes)
+    return Op(lambda x : _infer_module(x).transpose(x, axes)).output
 
 def reshape(x, shape):
-    mod = x._module
-    return Op(lambda x : mod.reshape(x, copy.copy(shape))).output
+    shape = copymodule.copy(shape)
+    return Op(lambda x : _infer_module(x).reshape(x, shape)).output
 
 def roll(x, shift, axis=None):
-    mod = x._module
-    shift, axis = copy.copy(shift), copy.copy(axis)
-    return Op(lambda x : mod.roll(x, shift, axis)).output
+    shift, axis = copymodule.copy(shift), copymodule.copy(axis)
+    return Op(lambda x : _infer_module(x).roll(x, shift, axis)).output
 
 def copy(a):
-    mod = x._module
-    return Op(lambda x : mod.copy(x, copy.copy(shape))).output
+    shape = copymodule.copy(shape)
+    return Op(lambda x : _infer_module(x).copy(x, shape)).output
 
 
 # ============================================================================ #
@@ -217,16 +221,15 @@ def copy(a):
 # ============================================================================ #
 
 def sin(a):
-    mod = x._module
-    return Op(lambda x : mod.sin(x)).output
+    return Op(lambda x : _infer_module(x).sin(x), (a,)).output
 
 def cos(a):
-    mod = x._module
-    return Op(lambda x : mod.cos(x)).output
+    mod = a._module
+    return Op(lambda x : _infer_module(x).cos(x), (a,)).output
 
 def exp(a):
-    mod = x._module
-    return Op(lambda x : mod.exp(x)).output
+    mod = a._module
+    return Op(lambda x : _infer_module(x).exp(x), (a,)).output
 
 def sum(a, axis=None):
     pass #TODO
@@ -357,7 +360,7 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
-    def __init__(self, func, inputs):
+    def __init__(self, func, inputs, source_objects):
         self._build_computational_graph(func, inputs)
         self._assign_id_to_variables()
         self._build_linear_program()
@@ -365,13 +368,20 @@ class decompose(object):
         self._assign_lp_results_to_vars()
 
         self.stages = [Stage(self.variables, self.inputs, self.outputs,
-                             k, self.numStages) for k in range(self.numStages)]
+                             k, self.numStages, source_objects) \
+                       for k in range(self.numStages)]
 
     # --------------------------------------------------------------------- #
+
+    def __len__(self):
+        return len(self.stages)
 
     def __iter__(self):
         for s in self.stages:
             yield s
+
+    def __getitem__(self, i):
+        return self.stages[i]
 
 
 # ============================================================================ #
@@ -379,8 +389,12 @@ class decompose(object):
 # ============================================================================ #
 
 class Stage(object):
-    def __init__(self, variables, globalInputs, globalOutputs, k, K):
+    def __init__(self, variables, globalInputs, globalOutputs,
+            k, K, source_objects):
         assert k >= 0 and k < K
+        assert len(source_objects) == len(source_arrays)
+
+        self.source_objects = tuple(source_objects)
 
         isIn = lambda a : a.createStage < k and a.killStage >= k
         isOut = lambda a : a.createStage <= k and a.killStage > k
@@ -396,8 +410,10 @@ class Stage(object):
         while remainingVariables:
             numRemoved = 0
             for a in remainingVariables:
-                if all(b in self.orderedVariables or b in self.inputs \
-                       or b in source_arrays for b in a.owner.inputs):
+                isReady = lambda b : b in self.orderedVariables or \
+                                     b in self.inputs or \
+                                     b in source_arrays
+                if all([isReady(b) for b in a.owner.inputs if _is_like_sa(b)]):
                     self.orderedVariables.append(a)
                     remainingVariables.remove(a)
                     numRemoved += 1
@@ -405,28 +421,30 @@ class Stage(object):
 
     # --------------------------------------------------------------------- #
 
-    def __call__(self, input_objects, source_objects):
-        assert len(inputs) == len(self.inputs)
+    def __call__(self, input_objects):
+        assert len(input_objects) == len(self.inputs)
         for a, a_obj in zip(self.inputs, input_objects):
             assert not hasattr(a, '_obj')
             a._obj = a_obj
 
-        for a, a_obj in zip(source_arrays, source_objects):
+        for a, a_obj in zip(source_arrays, self.source_objects):
             assert not hasattr(a, '_obj')
             a._obj = a_obj
 
         for a in self.orderedVariables:
             assert not hasattr(a, '_obj')
-            assert all(hasattr(b, '_obj') for b in a.owner.inputs)
-            input_objects = tuple(b._obj for b in a.owner.inputs)
+            assert all([hasattr(b, '_obj') for b in a.owner.inputs \
+                        if _is_like_sa(b)])
+            extract_obj = lambda b : b._obj if _is_like_sa(b) else b
+            input_objects = tuple(extract_obj(b) for b in a.owner.inputs)
             a._obj = a.owner.perform(input_objects)
 
-        assert all(hasattr(a, '_obj') for a in self.outputs)
+        assert all([hasattr(a, '_obj') for a in self.outputs])
         output_objects = tuple(a._obj for a in self.outputs)
 
-        for a in self.inputs:
+        for a in filter(_is_like_sa, self.inputs):
             del a._obj
-        for a in source_objects:
+        for a in source_arrays:
             del a._obj
         for a in self.orderedVariables:
             del a._obj
@@ -434,24 +452,137 @@ class Stage(object):
         return output_objects
 
 
+#==============================================================================#
+#                           replace numpy operations                           #
+#==============================================================================#
+
+def add(x1, x2, out=None):
+    if _is_like_sa(x2):
+        return x2.__add__(x1)
+    else:
+        return np.add(x1, x2, out)
+
+def subtract(x1, x2, out=None):
+    if _is_like_sa(x2):
+        return (-x2).__add__(x1)
+    else:
+        return np.subtract(x1, x2, out)
+
+def multiply(x1, x2, out=None):
+    if _is_like_sa(x2):
+        return x2.__mul__(x1)
+    else:
+        return np.multiply(x1, x2, out)
+
+def true_divide(x1, x2, out=None):
+    if _is_like_sa(x2):
+        return (1.0 / x2).__mul__(x1)
+    else:
+        return np.true_divide(x1, x2, out)
+
+if np.set_numeric_ops()['add'] == np.add:
+    np.set_numeric_ops(add=add)
+if np.set_numeric_ops()['subtract'] == np.subtract:
+    np.set_numeric_ops(subtract=subtract)
+if np.set_numeric_ops()['multiply'] == np.multiply:
+    np.set_numeric_ops(multiply=multiply)
+if np.set_numeric_ops()['true_divide'] == np.true_divide:
+    np.set_numeric_ops(divide=true_divide)
+    np.set_numeric_ops(true_divide=true_divide)
+
+
 # ============================================================================ #
 #                                 unit tests                                   #
 # ============================================================================ #
 
-class TestOperators(unittest.TestCase):
-    pass
+class TestSingleStage(unittest.TestCase):
+    def testHeat(self):
+        def heat(u):
+            dx, dt = 0.1, 0.01
+            return u + dt * (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
+
+        Ni, Nj = 16, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        heatStages = decompose(heat, stencil_array(),
+                source_objects=(G.i, G.j, G.zeros(())))
+
+        self.assertEquals(len(heatStages), 1)
+        stage0 = heatStages[0]
+
+        u0 = G.ones(())
+        result = stage0((u0,))
+        self.assertEquals(len(result), 1)
+        result = result[0]
+        err = result - 1
+        self.assertAlmostEqual(0, G.reduce_sum(err**2))
+
+        u0 = G.sin(G.i / Ni * np.pi * 2)
+        result = stage0((u0,))
+        self.assertEquals(len(result), 1)
+        result = result[0]
+        err = result - u0 * (1 - 2 * (1 - np.cos(np.pi * 2 / Ni)))
+        self.assertAlmostEqual(0, G.reduce_sum(err**2))
+
+        u0 = G.sin(G.j / Nj * np.pi * 4)
+        result = stage0((u0,))
+        self.assertEquals(len(result), 1)
+        result = result[0]
+        err = result - u0 * (1 - 2 * (1 - np.cos(np.pi * 4 / Nj)))
+        self.assertAlmostEqual(0, G.reduce_sum(err**2))
+
+    def testODE(self):
+        def ode(u):
+            dt = 0.1
+            return u - dt * sin(u)
+
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        odeStages = decompose(ode, stencil_array(),
+                source_objects=(G.i, G.j, G.zeros(())))
+
+        self.assertEquals(len(odeStages), 1)
+        stage0 = odeStages[0]
+
+        u0 = G.i
+        result = stage0((u0,))
+        self.assertEquals(len(result), 1)
+        result = result[0]
+        err = result - (G.i - 0.1 * G.sin(G.i))
+        self.assertAlmostEqual(0, G.reduce_sum(err**2))
+
+
+class TestTwoStage(unittest.TestCase):
+    def testHeat(self):
+        def heatMidpoint(u):
+            dx, dt = 0.1, 0.01
+            uh = u + 0.5 * dt * (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
+            return u + dt * (uh.x_m + uh.x_p + uh.y_m + uh.y_p - 4 * uh) / dx**2
+
+        Ni, Nj = 16, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        heatStages = decompose(heatMidpoint, stencil_array(),
+                source_objects=(G.i, G.j, G.zeros(())))
+
+        self.assertEquals(len(heatStages), 2)
+        stage0, stage1 = heatStages
+
+        u0 = G.sin(G.i / Ni * np.pi * 2)
+        result = stage1(stage0((u0,)))
+        self.assertEquals(len(result), 1)
+        result = result[0]
+
+        dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
+        err = result - u0 * (1 - dudt + dudt**2 / 2)
+        self.assertAlmostEqual(G.reduce_sum(err**2), 0)
 
 # ============================================================================ #
 #                                                                              #
 # ============================================================================ #
 
 if __name__ == '__main__':
-    def heat(u):
-        dx, dt = 0.1, 0.05
-        return u + dt * (u.x_m + u.x_p - 2 * u) / dx**2
+    import sa2d_single_thread
 
-    heatStages = decompose(heat, stencil_array())
-    # unittest.main()
+    unittest.main()
 
 ################################################################################
 ################################################################################
