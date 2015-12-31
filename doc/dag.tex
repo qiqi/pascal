@@ -3,7 +3,7 @@
 \usepackage[procnames]{listings}
 
 \title{An algorithm for decomposing a stencil update formula into atomic stages}
-\author{Maitham Alhubail, David Gleich, Qiqi Wang}
+\author{Qiqi Wang}
 
 \definecolor{keywords}{RGB}{150,100,0}
 \definecolor{comments}{RGB}{0,0,100}
@@ -127,6 +127,9 @@ Here lists the constraints of the linear program:
 \item
 $c_i = 0$ if Variable $i$ is an input of the entire update formula.
 All inputs are created in the first stage.
+\item
+$k_i = K$ if Variable $i$ is an output of the entire update formula.
+All outputs are killed in the first stage.
 \item 
 $c_i \le k_i, \forall i$.  A variable cannot be killed before it is created.
 \item
@@ -136,9 +139,10 @@ $c_j \le c_i \le k_j$ if Variable $i$ directly depends on Variable $j$.  Variabl
 \item $g_i + c_i \ge g_j + c_j$ if Variable $i$ directly depends on Variable $j$.  Here Variable $i$ inherits the dependence of Variable $j$ to neighboring grid points, if Variables $i$ and $j$ are created in the same stage.  Otherwise, if $c_i \ge c_j + 1$, the inheritence is forgiven, and $g_i$ is allowed to be 0.
 \item $g_i + c_i \ge g_j + c_j + 1$ if Variable $i$ directly depends on Variable $j$ at immediate neighbor grid points.  If $g_j$ is already 1, then Variable must be created at a later stage.
 \end{enumerate}
-This linear program has a size equals to three times the number of variables in the update formula.
+This linear program has a size one more than three times the number of variables in the update formula.
 
-We denote $V$ as the set of all variables, and $V_S\subset V$ as all input variables of the update formula.  We also denote
+We denote $V$ as the set of all variables, $V_S\subset V$ as all input variables of the update formula, and $V_T\subset V$ all output variables.
+We also denote
 \[\begin{split}
 E &= \{(j,i) : i \textrm{ depends on }j\},\\
 E_G &= \{(j,i) : i \textrm{ depends on } j \textrm{ at neighboring grid points}\} \subset E \;.
@@ -148,6 +152,7 @@ With these, the linear program can be written as
 \begin{aligned}
 & \min && \sum_i (k_i - c_i) w_i,               && \\
 & \textrm{s.t.} & c_i &= 0,                     && \forall i\in V_S, \\
+&               & k_i &= K,                     && \forall i\in V_T, \\
 &               & c_i - k_i &\le 0,             && \forall i\in V, \\
 &               &-g_i &\le 0,                   && \forall i\in V, \\
 &               & g_i &\le 1,                   && \forall i\in V, \\
