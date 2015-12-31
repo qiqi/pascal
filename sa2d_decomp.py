@@ -294,11 +294,11 @@ class decompose(object):
         A_eq, A_lt, b_eq, b_lt = [], [], [], []
 
         def add_eq(A_c, A_k, A_g, A_K, b):
-            A_eq.append(hstack([A_c, A_k, A_g, A_K]))
+            A_eq.append(np.hstack([A_c, A_k, A_g, A_K]))
             b_eq.append(b)
 
         def add_lt(A_c, A_k, A_g, A_K, b):
-            A_lt.append(hstack([A_c, A_k, A_g, A_K]))
+            A_lt.append(np.hstack([A_c, A_k, A_g, A_K]))
             b_lt.append(b)
 
         # build constraints
@@ -343,6 +343,7 @@ class decompose(object):
     def _solve_linear_program(self):
         c, A_eq, A_lt, b_eq, b_lt = self._linear_program
         opt = {'maxiter': 2000, 'disp': True}
+        print('solving linear program')
         self._linear_program_result = scipy.optimize.linprog(
                 c, A_lt, b_lt, A_eq, b_eq, options=opt)
         if not self._linear_program_result.success:
@@ -512,26 +513,26 @@ class TestSingleStage(unittest.TestCase):
         heatStages = decompose(heat, stencil_array(),
                 source_objects=(G.i, G.j, G.zeros(())))
 
-        self.assertEquals(len(heatStages), 1)
+        self.assertEqual(len(heatStages), 1)
         stage0 = heatStages[0]
 
         u0 = G.ones(())
         result = stage0((u0,))
-        self.assertEquals(len(result), 1)
+        self.assertEqual(len(result), 1)
         result = result[0]
         err = result - 1
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
         u0 = G.sin(G.i / Ni * np.pi * 2)
         result = stage0((u0,))
-        self.assertEquals(len(result), 1)
+        self.assertEqual(len(result), 1)
         result = result[0]
         err = result - u0 * (1 - 2 * (1 - np.cos(np.pi * 2 / Ni)))
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
         u0 = G.sin(G.j / Nj * np.pi * 4)
         result = stage0((u0,))
-        self.assertEquals(len(result), 1)
+        self.assertEqual(len(result), 1)
         result = result[0]
         err = result - u0 * (1 - 2 * (1 - np.cos(np.pi * 4 / Nj)))
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
@@ -546,12 +547,12 @@ class TestSingleStage(unittest.TestCase):
         odeStages = decompose(ode, stencil_array(),
                 source_objects=(G.i, G.j, G.zeros(())))
 
-        self.assertEquals(len(odeStages), 1)
+        self.assertEqual(len(odeStages), 1)
         stage0 = odeStages[0]
 
         u0 = G.i
         result = stage0((u0,))
-        self.assertEquals(len(result), 1)
+        self.assertEqual(len(result), 1)
         result = result[0]
         err = result - (G.i - 0.1 * G.sin(G.i))
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
@@ -571,12 +572,12 @@ class TestMultiStage(unittest.TestCase):
         heatStages = decompose(heatMidpoint, stencil_array(),
                 source_objects=(G.i, G.j, G.zeros(())))
 
-        self.assertEquals(len(heatStages), 2)
+        self.assertEqual(len(heatStages), 2)
         stage0, stage1 = heatStages
 
         u0 = G.sin(G.i / Ni * np.pi * 2)
         result = stage1(stage0((u0,)))
-        self.assertEquals(len(result), 1)
+        self.assertEqual(len(result), 1)
         result = result[0]
 
         dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
@@ -593,27 +594,24 @@ class TestMultiStage(unittest.TestCase):
 
         def ks_rk4(u0):
             dt = 0.01
-            du0 = dt * dudt(u0)
-            du1 = dt * dudt(u0 + 0.5 * du0)
-            du2 = dt * dudt(u0 + 0.5 * du1)
-            du3 = dt * dudt(u0 + du2)
-            return u + (du0 + 2 * du1 + 2 * du2 + du3) / 6
+            du0 = dt * ks_dudt(u0)
+            du1 = dt * ks_dudt(u0 + 0.5 * du0)
+            du2 = dt * ks_dudt(u0 + 0.5 * du1)
+            du3 = dt * ks_dudt(u0 + du2)
+            return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
 
         Ni, Nj = 16, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
         ksStages = decompose(ks_rk4, stencil_array(),
                 source_objects=(G.i, G.j, G.zeros(())))
 
-        self.assertEquals(len(ksStages), 8)
+        self.assertEqual(len(ksStages), 8)
 
-        # u0 = G.sin(G.i / Ni * np.pi * 2)
-        # result = stage1(stage0((u0,)))
-        # self.assertEquals(len(result), 1)
-        # result = result[0]
+        inp = (G.sin(G.i / Ni * np.pi * 2),)
+        for i in range(8):
+            inp = ksStages[i](inp)
 
-        # dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
-        # err = result - u0 * (1 - dudt + dudt**2 / 2)
-        # self.assertAlmostEqual(G.reduce_sum(err**2), 0)
+        self.assertEqual(len(inp), 1)
 
 
 # ============================================================================ #
@@ -669,29 +667,35 @@ class TestTheano(unittest.TestCase):
 if __name__ == '__main__':
     import sa2d_single_thread
 
-    def ks_dudt(u):
-        dx = 0.1
-        lu = (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
-        llu = (lu.x_m + lu.x_p + lu.y_m + lu.y_p - 4 * u) / dx**2
-        ux = (u.x_m - u.x_p) / dx
-        return -llu - lu - ux * u
+    #       def ks_dudt(u):
+    #           dx = 0.1
+    #           lu = (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
+    #           llu = (lu.x_m + lu.x_p + lu.y_m + lu.y_p - 4 * u) / dx**2
+    #           ux = (u.x_m - u.x_p) / dx
+    #           return -llu - lu - ux * u
 
-    def ks_rk4(u0):
-        dt = 0.01
-        du0 = dt * ks_dudt(u0)
-        du1 = dt * ks_dudt(u0 + 0.5 * du0)
-        du2 = dt * ks_dudt(u0 + 0.5 * du1)
-        du3 = dt * ks_dudt(u0 + du2)
-        return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
+    #       def ks_rk4(u0):
+    #           dt = 0.01
+    #           du0 = dt * ks_dudt(u0)
+    #           du1 = dt * ks_dudt(u0 + 0.5 * du0)
+    #           du2 = dt * ks_dudt(u0 + 0.5 * du1)
+    #           du3 = dt * ks_dudt(u0 + du2)
+    #           return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
 
-    Ni, Nj = 16, 8
-    G = sa2d_single_thread.grid2d(Ni, Nj)
-    ksStages = decompose(ks_rk4, stencil_array(),
-            source_objects=(G.i, G.j, G.zeros(())))
+    #       Ni, Nj = 16, 8
+    #       G = sa2d_single_thread.grid2d(Ni, Nj)
+    #       ksStages = decompose(ks_rk4, stencil_array(),
+    #               source_objects=(G.i, G.j, G.zeros(())))
 
-    assert len(ksStages) == 8
+    #       assert len(ksStages) == 8
 
-    # unittest.main()
+    #       inp = (G.sin(G.i / Ni * np.pi * 2),)
+    #       for i in range(8):
+    #           inp = ksStages[i](inp)
+
+    #       assert len(inp) == 1
+
+    unittest.main()
 
 ################################################################################
 ################################################################################

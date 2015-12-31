@@ -33,7 +33,7 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
     (ixStart, ixEnd), (iyStart, iyEnd) = iRange
     iWorker, ((comm_x_m, comm_x_p), (comm_y_m, comm_y_p)) = commArray
 
-    V, _V_with_ghost = {}, {}
+    V = {}
     math = np
 
     # --------------------------------------------------------------------- #
@@ -51,69 +51,17 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
 
     def del_V(key):
         del V[key]
-        if key in _V_with_ghost:
-            del _V_with_ghost[key]
-
-    # --------------------------------------------------------------------- #
-    #                           neighbor access                             #
-    # --------------------------------------------------------------------- #
-
-    def _update_all_V_with_ghost():
-        # TODO: Optimize
-        for key in V:
-            _update_V_with_ghost(key)
-
-    def _update_V_with_ghost(key):
-        if key not in _V_with_ghost:
-            v = V[key]
-            comm_x_p.send(v[-1,:]); comm_x_m.send(v[0,:])
-            comm_y_p.send(v[:,-1]); comm_y_m.send(v[:,0])
-
-            shape_with_ghost = (v.shape[0] + 2, v.shape[1] + 2) + v.shape[2:]
-            _V_with_ghost[key] = np.empty(shape_with_ghost)
-            _V_with_ghost[key][1:-1,1:-1] = v
-
-            _V_with_ghost[key][0,1:-1] = comm_x_m.recv()
-            _V_with_ghost[key][-1,1:-1] = comm_x_p.recv()
-            _V_with_ghost[key][1:-1,0] = comm_y_m.recv()
-            _V_with_ghost[key][1:-1,-1] = comm_y_p.recv()
-
-    def _invalidate_ghost(key):
-        if key in _V_with_ghost:
-            del _V_with_ghost[key]
-
-    def x_p(key):
-        _update_V_with_ghost(key)
-        return _V_with_ghost[key][2:,1:-1]
-
-    def x_m(key):
-        _update_V_with_ghost(key)
-        return _V_with_ghost[key][:-2,1:-1]
-
-    def y_p(key):
-        _update_V_with_ghost(key)
-        return _V_with_ghost[key][1:-1,2:]
-
-    def y_m(key):
-        _update_V_with_ghost(key)
-        return _V_with_ghost[key][1:-1,:-2]
 
     # --------------------------------------------------------------------- #
     #                           main event loop                             #
     # --------------------------------------------------------------------- #
-
-    locals_with_V_ghost = locals()
-    locals_with_V_ghost['V'] = _V_with_ghost
 
     while True:
         varKey, varIndex, expression, data, wantResult = commandPipe.recv()
         try:
             if varKey == 'KILL':
                 return
-            try:
-                result = eval(expression, {}, locals_with_V_ghost)
-            except KeyError:
-                result = eval(expression, {}, locals())
+            result = eval(expression, {}, locals())
 
             if varKey is None:
                 if wantResult:
@@ -122,7 +70,6 @@ def grid2d_worker_main(commandPipe, iRange, commArray):
                 V[varKey] = result
             else:
                 V[varKey][varIndex] = result
-                _invalidate_ghost(varKey)
         except Exception as e:
             print('Worker {0} CRASH caused by'.format(iWorker) + \
                   '\tk:{0}\ti:{1}\te:{2}\td:{3}'.format(
@@ -297,11 +244,6 @@ class grid2d(object):
         expr = 'math.random({0})'.format(str(np.empty(shape).shape))
         return self._array(expr, shape)
 
-    # def load(self, filename):
-    #     assert self._math is np
-    #     data = np.load(filename)
-    #     return self._array(data, data.shape[2:])
-
     @property
     def i(self):
         #expr = 'math.i'
@@ -429,30 +371,6 @@ class psarray_base(object):
         expr = 'V[{0}][{1}]'.format(self._key, dataInd)
         return self.grid._array(expr, shape, dependents=(self,))
 
-
-    # -------------------------------------------------------------------- #
-    #                         access spatial neighbors                     #
-    # -------------------------------------------------------------------- #
-
-    @property
-    def x_p(self):
-        return self.grid._array('x_p({0})'.format(self._key), self.shape,
-            dependents=(self,))
-
-    @property
-    def x_m(self):
-        return self.grid._array('x_m({0})'.format(self._key), self.shape,
-            dependents=(self,))
-
-    @property
-    def y_p(self):
-        return self.grid._array('y_p({0})'.format(self._key), self.shape,
-         dependents=(self,))
-
-    @property
-    def y_m(self):
-        return self.grid._array('y_m({0})'.format(self._key), self.shape,
-         dependents=(self,))
 
     # -------------------------------------------------------------------- #
     #                         algorithmic operations                       #

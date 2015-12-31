@@ -32,8 +32,8 @@ class Pipe(object):
 # ============================================================================ #
 
 class TestPipe(unittest.TestCase):
-    def testPipe(self):
-        n, m = 1000, 1000
+    def testLatency(self):
+        n, m = 1000, 1
         p0 = Pipe(m)
         p1 = Pipe(m)
         def f(n, p_out, p_in, whoami):
@@ -51,6 +51,25 @@ class TestPipe(unittest.TestCase):
         p.join()
 
         self.assertLess(latency, 2E-5)
+
+    def testLatencyBandwidth(self):
+        n = 1000
+        for m in [1, 10, 100, 1000, 10000]:
+            p0 = Pipe(m)
+            p1 = Pipe(m)
+            def f(n, p_out, p_in, whoami):
+                a = numpy.zeros(m)
+                for i in range(n):
+                    p_out.copyFrom(a, i)
+                    p_in.copyInto(a, i)
+
+            p = multiprocessing.Process(target=f, args=(n, p0, p1, 1))
+            p.start()
+            t0 = time.time()
+            f(n, p1, p0, 0)
+            latency = (time.time() - t0) / (n*2)
+            print(m * 8, 'bytes', latency * 1E6, 'us')
+            p.join()
 
 if __name__ == '__main__':
     unittest.main()
