@@ -150,7 +150,7 @@ E_G &= \{(j,i) : i \textrm{ depends on } j \textrm{ at neighboring grid points}\
 With these, the linear program can be written as
 \begin{equation}
 \begin{aligned}
-& \min && \sum_i (k_i - c_i) w_i,               && \\
+& \min_{k_i,c_i,g_i,K} && \sum_i (k_i - c_i) w_i,               && \\
 & \textrm{s.t.} & c_i &= 0,                     && \forall i\in V_S, \\
 &               & k_i &= K,                     && \forall i\in V_T, \\
 &               & c_i - k_i &\le 0,             && \forall i\in V, \\
@@ -164,6 +164,8 @@ With these, the linear program can be written as
 \end{aligned}
 \end{equation}
 
-{\bf Theorem:} The solution of the linear program
+{\bf Theorem:} The solution of the linear program minimizes $K$.
+
+{\bf Proof.} 
 
 \end{document}

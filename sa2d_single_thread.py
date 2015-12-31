@@ -388,7 +388,7 @@ if np.set_numeric_ops()['subtract'] == np.subtract:
 if np.set_numeric_ops()['multiply'] == np.multiply:
     np.set_numeric_ops(multiply=multiply)
 if np.set_numeric_ops()['true_divide'] == np.true_divide:
-    np.set_numeric_ops(divide=_true_divide)
+    np.set_numeric_ops(divide=true_divide)
     np.set_numeric_ops(true_divide=true_divide)
 
 #==============================================================================#

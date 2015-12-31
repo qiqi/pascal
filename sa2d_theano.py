@@ -4,6 +4,8 @@
 #                                                                              #
 # ============================================================================ #
 
+from __future__ import division
+
 import unittest
 import operator
 import numpy as np
@@ -112,12 +114,6 @@ class stencil_array(object):
 
     def __rmul__(self, a):
         return _binary_op(operator.mul, a, self)
-
-    def __div__(self, a):
-        return self.__truediv__(a)
-
-    def __rdiv__(self, a):
-        return self.__rtruediv__(a)
 
     def __truediv__(self, a):
         return _binary_op(operator.truediv, self, a)
@@ -281,21 +277,30 @@ def exp(a):
     return stencil_array(a.shape, T.sin(a.tensor), a.has_ghost)
 
 def sum(a, axis=None):
-    pass #TODO
+    assert _is_like_sa(a)
+    if axis is None:
+        tensor_shape = T.join(0, a.tensor.shape[:2], [a.size])
+        tensor = T.sum(T.reshape(a.tensor, tensor_shape, ndim=3), axis=2)
+        return stencil_array((), tensor, a.has_ghost)
+    else:
+        shape = np.zeros(a.shape).sum(axis).shape
+        tensor = T.sum(a.tensor, axis+2)
+        return stencil_array(shape, tensor, a.has_ghost)
 
 def mean(a, axis=None):
-    pass #TODO
+    assert _is_like_sa(a)
+    if axis is None:
+        tensor_shape = T.join(0, a.tensor.shape[:2], [a.size])
+        tensor = T.mean(T.reshape(a.tensor, tensor_shape, ndim=3), axis=2)
+        return stencil_array((), tensor, a.has_ghost)
+    else:
+        shape = np.zeros(a.shape).mean(axis).shape
+        tensor = T.mean(a.tensor, axis+2)
+        return stencil_array(shape, tensor, a.has_ghost)
 
 # ============================================================================ #
-#                              atomic sa arrays                               #
+#                               sa arrays generators                         #
 # ============================================================================ #
-
-i = stencil_array((), T.tensor('float64', (False,) * 2), True)
-j = stencil_array((), T.tensor('float64', (False,) * 2), True)
-
-def ij_np(i0, i1, j0, j1):
-    return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
-           np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
 
 def ones(shape=()):
     shape = np.ones(shape).shape
@@ -309,7 +314,7 @@ def zeros(shape=()):
 #                          compiling into theano function                      #
 # ============================================================================ #
 
-def compile(func, inputs=(), args=(), argv={}, with_ij=True):
+def compile(func, inputs=(), args=(), argv={}):
     np2theano = lambda a: T.Tensor('float64', (False,) * a.ndim)()
     input_list = [inputs] if hasattr(inputs, 'ndim') else list(inputs)
     theano_inputs = [np2theano(a) for a in input_list]
@@ -328,8 +333,6 @@ def compile(func, inputs=(), args=(), argv={}, with_ij=True):
     else:
         theano_outputs = [a.tensor for a in sa_outputs]
 
-    if with_ij:
-        theano_inputs += [i.tensor, j.tensor]
     return theano.function(theano_inputs, theano_outputs,
             on_unused_input='ignore')
 
@@ -345,7 +348,7 @@ class TestOperators(unittest.TestCase):
             zz = (z.x_p + z.x_m + z.y_p + z.y_m - 4 * z) / 4
             return (a.x_p + a.x_m + a.y_p + a.y_m - 4 * a) / 4 + zz
         a = np.ones([4,5])
-        f = compile(laplacian, a, with_ij=False)
+        f = compile(laplacian, a)
         self.assertEqual(f(a).shape, (2,3))
         self.assertAlmostEqual(abs(f(a)).max(), 0)
 
@@ -354,7 +357,7 @@ class TestOperators(unittest.TestCase):
             lapla = -4 * a + a.x_p + a.x_m + a.y_p + a.y_m
             return lapla * exp(a) / sin(a) * cos(a)
         a = np.ones([4,5])
-        f = compile(nlLaplacian, a, with_ij=False)
+        f = compile(nlLaplacian, a)
         self.assertEqual(f(a).shape, (2,3))
         self.assertAlmostEqual(abs(f(a)).max(), 0)
 
@@ -363,7 +366,7 @@ class TestOperators(unittest.TestCase):
             return (a.x_p - a.x_m) / 2, (a.y_p - a.y_m) / 2
         a = np.outer(np.ones(4), np.arange(5) * 2) \
           + np.outer(np.arange(4), np.ones(5)) + 1
-        f = compile(grad, a, with_ij=False)
+        f = compile(grad, a)
         ax, ay = f(a)
         self.assertEqual(ax.shape, (2,3))
         self.assertEqual(ay.shape, (2,3))
@@ -376,7 +379,7 @@ class TestOperators(unittest.TestCase):
             return (vx.x_p - vx.x_m) / 2 + (vy.y_p - vy.y_m) / 2
         v = [np.outer(np.arange(4) * 3, np.ones(5)),
              np.outer(np.ones(4), np.arange(5) * 2)]
-        f = compile(div, v, with_ij=False)
+        f = compile(div, v)
         vDiv = f(*v)
         self.assertEqual(vDiv.shape, (2,3))
         self.assertAlmostEqual(abs(vDiv - 5).max(), 0)
@@ -389,27 +392,43 @@ class TestOperators(unittest.TestCase):
             e = b ** np.ones(6) ** (a / (np.ones([5,6]) / d))
             return -d
         a = np.ones([3,4,5,6])
-        f = compile(arb, a, with_ij=False)
+        f = compile(arb, a)
         self.assertEqual(f(a).shape, (1,2,5,6))
+
+    def testNoArg(self):
+        def func():
+            return -ones([2,3,4]) * 123
+        f = compile(func)
+        self.assertEqual(f().shape, (1,1,2,3,4))
+        self.assertAlmostEqual(abs(f() + 123).max(), 0)
 
 # ---------------------------------------------------------------------------- #
 
 class TestIJ(unittest.TestCase):
+    @staticmethod
+    def ij_np(i0, i1, j0, j1):
+        return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
+               np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
+
     def testLaplacianByIpJ(self):
-        def laplacian(a):
+        def laplacian(inputs):
+            a, i, j = inputs
             return (a.x_p + a.x_m + a.y_p + a.y_m - 4 * a) / 4 * (i + j)
         a = np.ones([4,5])
-        f = compile(laplacian, a)
-        fa = f(a, *ij_np(0,a.shape[0],0,a.shape[1]))
+        i, j = self.ij_np(0,a.shape[0],0,a.shape[1])
+        f = compile(laplacian, (a, i, j))
+        fa = f(a, i, j)
         self.assertEqual(fa.shape, (2,3))
         self.assertAlmostEqual(abs(fa).max(), 0)
 
     def testDivYX(self):
-        def divYX():
+        def divYX(inputs):
+            i, j = inputs
             x, y = i * 0.1, j * 0.2
             return y.x_p - y.x_m + x.y_p - x.y_m
-        f = compile(divYX)
-        fa = f(*ij_np(0,4,0,6))
+        i, j = self.ij_np(-1,3,-1,5)
+        f = compile(divYX, (i, j))
+        fa = f(i, j)
         self.assertEqual(fa.shape, (2,4))
         self.assertAlmostEqual(abs(fa).max(), 0)
 
@@ -420,7 +439,7 @@ class TestTransforms(unittest.TestCase):
         def size_a(a):
             return ones(()) * a.size
         a = np.ones([4,5,2,3])
-        f = compile(size_a, a, with_ij=False)
+        f = compile(size_a, a)
         fa = f(a)
         self.assertEqual(fa.shape, (1,1))
         self.assertAlmostEqual(abs(fa - 6).max(), 0)
@@ -429,7 +448,7 @@ class TestTransforms(unittest.TestCase):
         def len_a(a):
             return zeros(()) + len(a)
         a = np.ones([4,5,2,3])
-        f = compile(len_a, a, with_ij=False)
+        f = compile(len_a, a)
         fa = f(a)
         self.assertEqual(fa.shape, (1,1))
         self.assertAlmostEqual(abs(fa - 2).max(), 0)
@@ -438,7 +457,7 @@ class TestTransforms(unittest.TestCase):
         def xtm1(a):
             return a.T - 1
         a = np.ones([4,5,2,3])
-        f = compile(xtm1, a, with_ij=False)
+        f = compile(xtm1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (4,5,3,2))
         self.assertAlmostEqual(abs(fa).max(), 0)
@@ -455,7 +474,7 @@ class TestTransforms(unittest.TestCase):
         def xtm1(a):
             return a.transpose([2,3,1,0]) - 1
         a = np.ones([2,3,4,5,6,7])
-        f = compile(xtm1, a, with_ij=False)
+        f = compile(xtm1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (2,3,6,7,5,4))
         self.assertAlmostEqual(abs(fa).max(), 0)
@@ -471,7 +490,7 @@ class TestTransforms(unittest.TestCase):
         def xrm1(a):
             return a.reshape([3,-1]) - 1
         a = np.ones([4,5,2,3,4]) + np.arange(4)
-        f = compile(xrm1, a, with_ij=False)
+        f = compile(xrm1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (4,5,3,8))
         for i in range(4):
@@ -482,7 +501,7 @@ class TestTransforms(unittest.TestCase):
         def xrm1(a):
             return roll(a, 1) - 1
         a = np.ones([4,5,2,3]) + np.arange(2)[:,np.newaxis]
-        f = compile(xrm1, a, with_ij=False)
+        f = compile(xrm1, a)
         fa = f(a)
         self.assertEqual(fa.shape, a.shape)
         self.assertAlmostEqual(abs(fa[:,:,0,1:]).max(), 0)
@@ -494,7 +513,7 @@ class TestTransforms(unittest.TestCase):
         def xr0m1(a):
             return roll(a, 1, axis=0).copy() - 1
         a = np.ones([4,5,2,3]) + np.arange(2)[:,np.newaxis]
-        f = compile(xr0m1, a, with_ij=False)
+        f = compile(xr0m1, a)
         fa = f(a)
         self.assertEqual(fa.shape, a.shape)
         self.assertAlmostEqual(abs(fa[:,:,0,:] - 1).max(), 0)
@@ -507,7 +526,7 @@ class TestIndexing(unittest.TestCase):
         def pick12(a):
             return a[1,2]
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(pick12, a, with_ij=False)
+        f = compile(pick12, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4))
         self.assertAlmostEqual(abs(fa - a[:,:,1,2]).max(), 0)
@@ -516,7 +535,7 @@ class TestIndexing(unittest.TestCase):
         def pickRange(a):
             return a[1:-1,1:-1]
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(pickRange, a, with_ij=False)
+        f = compile(pickRange, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,3,4))
         self.assertAlmostEqual(abs(fa - a[:,:,1:-1,1:-1]).max(), 0)
@@ -525,7 +544,7 @@ class TestIndexing(unittest.TestCase):
         def pickLast(a):
             return a[-1]
         a = np.zeros([3,4,1]) + np.arange(5)
-        f = compile(pickLast, a, with_ij=False)
+        f = compile(pickLast, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4))
         self.assertAlmostEqual(abs(fa - 4).max(), 0)
@@ -535,7 +554,7 @@ class TestIndexing(unittest.TestCase):
             a[1,2] = 0
             return a
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(set12, a, with_ij=False)
+        f = compile(set12, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,5,6))
         self.assertAlmostEqual(abs(fa[:,:,1,2]).max(), 0)
@@ -548,7 +567,7 @@ class TestIndexing(unittest.TestCase):
             a[1,2] = 2 * a[1,2].x_p
             return a
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(set12, a, with_ij=False)
+        f = compile(set12, a)
         fa = f(a)
         self.assertEqual(fa.shape, (1,2,5,6))
         self.assertAlmostEqual(abs(fa[:,:,1,2] - a[0,0,1,2] * 2).max(), 0)
@@ -562,7 +581,7 @@ class TestIndexing(unittest.TestCase):
             b[1:-1,1:-1] = sin(a[2,3])
             return b
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(setRange, a, with_ij=False)
+        f = compile(setRange, a)
         fa = f(a)
         self.assertEqual(fa.shape, (1,2,5,6))
         self.assertAlmostEqual(abs(fa[:,:,1:-1,1:-1] \
@@ -575,7 +594,7 @@ class TestIndexing(unittest.TestCase):
             a[1,2:4] = ones(2)
             return a
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(setToOnes, a, with_ij=False)
+        f = compile(setToOnes, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,5,6))
         self.assertAlmostEqual(abs(fa[:,:,1,2:4] - 1).max(), 0)
@@ -587,10 +606,49 @@ class TestIndexing(unittest.TestCase):
             a[0,:] = b
             return a
         a = np.ones([3,4,3,4]) + np.arange(4)
-        f = compile(setToOnes, a, with_ij=False)
+        f = compile(setToOnes, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,3,4))
         self.assertAlmostEqual(abs(fa[:,:,0,[0,3]]).max(), 0)
+
+# ---------------------------------------------------------------------------- #
+
+class TestSumMean(unittest.TestCase):
+    def testSum1(self):
+        def sum1(a):
+            return a.sum()
+        a = np.zeros([3,4,3,4]) + np.arange(4)
+        f = compile(sum1, a)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4))
+        self.assertAlmostEqual(abs(fa - 18).max(), 0)
+
+    def testSum2(self):
+        def sum1(a):
+            return a.sum(1)
+        a = np.zeros([3,4,3,4]) + np.arange(4)
+        f = compile(sum1, a)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4,3))
+        self.assertAlmostEqual(abs(fa - 6).max(), 0)
+
+    def testMean1(self):
+        def mean1(a):
+            return a.mean()
+        a = np.zeros([3,4,3,4]) + np.arange(4)
+        f = compile(mean1, a)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4))
+        self.assertAlmostEqual(abs(fa - 1.5).max(), 0)
+
+    def testMean2(self):
+        def mean1(a):
+            return a.mean(1)
+        a = np.zeros([3,4,3,4]) + np.arange(4)
+        f = compile(mean1, a)
+        fa = f(a)
+        self.assertEqual(fa.shape, (3,4,3))
+        self.assertAlmostEqual(abs(fa - 1.5).max(), 0)
 
 # ============================================================================ #
 #                                                                              #
