@@ -86,6 +86,7 @@ class stencil_array(object):
 
     # --------------------------- operations ------------------------------ #
 
+    # asks ndarray to use the __rops__ defined in this class
     __array_priority__ = 100
 
     def __add__(self, a):
@@ -224,11 +225,9 @@ def sin(a):
     return Op(lambda x : _infer_module(x).sin(x), (a,)).output
 
 def cos(a):
-    mod = a._module
     return Op(lambda x : _infer_module(x).cos(x), (a,)).output
 
 def exp(a):
-    mod = a._module
     return Op(lambda x : _infer_module(x).exp(x), (a,)).output
 
 def sum(a, axis=None):
@@ -238,14 +237,10 @@ def mean(a, axis=None):
     pass #TODO
 
 # ============================================================================ #
-#                              source sa arrays                                #
+#                             built-in source array                            #
 # ============================================================================ #
 
-i = stencil_array()
-j = stencil_array()
 _zero = stencil_array()
-
-source_arrays = (i, j, _zero)
 
 def ones(shape=()):
     return _zero + np.ones(shape)
@@ -258,6 +253,9 @@ def zeros(shape=()):
 # ============================================================================ #
 
 class decompose(object):
+    '''
+    '''
+    # TODO: Add comments
     def _build_computational_graph(self, func, inputs):
         if not isinstance(inputs, tuple):
             inputs = (inputs,)
@@ -308,15 +306,21 @@ class decompose(object):
 
         for a in self.inputs:
             i = a._variableId
+            # an input variable is born at Stage 0
             add_eq(e[i], z, z, 0, 0)
 
         for a in self.outputs:
             i = a._variableId
+            # an output variable is killed at Stage K (last stage)
             add_eq(z, e[i], z, -1, 0)
 
         for a in self.variables:
             i = a._variableId
+            # a variable cannot be killed before it is born
             add_lt(e[i], -e[i], z, 0, 0)
+            # a variable has a bare-ness (g) between 0 and 1,
+            # 1 indicating it is bare, i.e, has no neighbors upon creation;
+            # 0 indicating it has one layer of neighbor upon creation.
             add_lt(z, z, -e[i], 0, 0)
             add_lt(z, z, e[i], 0, 1)
 
@@ -324,13 +328,20 @@ class decompose(object):
                 for b in a.owner.inputs:
                     if _is_like_sa(b):
                         j = b._variableId
+                        # a child cannot be born before its parent is born
                         add_lt(e[j] - e[i], z, z, 0, 0)
+                        # a child cannot be born after its parent is killed
                         add_lt(e[i], -e[j], z, 0, 0)
                         if a.owner.access_neighbor:
+                            # a bare parent must wait to next stage
+                            # to produce any child through neibhor access
                             add_lt(e[j] - e[i], z, e[j] - e[i], 0, -1)
                         else:
+                            # a bare parent produces bare children
+                            # during its creating stage
                             add_lt(e[j] - e[i], z, e[j] - e[i], 0, 0)
                 if a.owner.access_neighbor:
+                    # a child born through neighbor access is bare
                     add_eq(z, z, e[i], 0, 1)
 
         w = np.array([a.size for a in self.variables])
@@ -367,7 +378,7 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
-    def __init__(self, func, inputs, source_objects):
+    def __init__(self, func, inputs):
         self._build_computational_graph(func, inputs)
         self._assign_id_to_variables()
         self._build_linear_program()
@@ -375,8 +386,7 @@ class decompose(object):
         self._assign_lp_results_to_vars()
 
         self.stages = [Stage(self.variables, self.inputs, self.outputs,
-                             k, self.numStages, source_objects) \
-                       for k in range(self.numStages)]
+                             k, self.numStages) for k in range(self.numStages)]
 
     # --------------------------------------------------------------------- #
 
@@ -396,12 +406,8 @@ class decompose(object):
 # ============================================================================ #
 
 class Stage(object):
-    def __init__(self, variables, globalInputs, globalOutputs,
-            k, K, source_objects):
+    def __init__(self, variables, globalInputs, globalOutputs, k, K):
         assert k >= 0 and k < K
-        assert len(source_objects) == len(source_arrays)
-
-        self.source_objects = tuple(source_objects)
 
         isIn = lambda a : a.createStage < k and a.killStage >= k
         isOut = lambda a : a.createStage <= k and a.killStage > k
@@ -411,30 +417,37 @@ class Stage(object):
         self.outputs = tuple(filter(isOut, variables)) \
             if k < K - 1 else globalOutputs
 
-        isK = lambda a : a.createStage == k and a.owner
-        remainingVariables = list(filter(isK, variables))
+        isKSource = lambda a : a.createStage == k and a.owner is None and \
+                               a not in globalInputs
+        self.sourceVariables = tuple(filter(isKSource, variables))
+
+        isKVar = lambda a : a.createStage == k and a.owner is not None
+        self._order_variables(list(filter(isKVar, variables)))
+
+    def _order_variables(self, stage_k_variables):
         self.orderedVariables = []
-        while remainingVariables:
+        while stage_k_variables:
             numRemoved = 0
-            for a in remainingVariables:
+            for a in stage_k_variables:
                 isReady = lambda b : b in self.orderedVariables or \
                                      b in self.inputs or \
-                                     b in source_arrays
+                                     b in self.sourceVariables
                 if all([isReady(b) for b in a.owner.inputs if _is_like_sa(b)]):
                     self.orderedVariables.append(a)
-                    remainingVariables.remove(a)
+                    stage_k_variables.remove(a)
                     numRemoved += 1
             assert numRemoved > 0
 
     # --------------------------------------------------------------------- #
 
-    def __call__(self, input_objects):
+    def __call__(self, input_objects, source_objects=()):
         assert len(input_objects) == len(self.inputs)
         for a, a_obj in zip(self.inputs, input_objects):
             assert not hasattr(a, '_obj')
             a._obj = a_obj
 
-        for a, a_obj in zip(source_arrays, self.source_objects):
+        assert len(source_objects) == len(self.sourceVariables)
+        for a, a_obj in zip(self.sourceVariables, source_objects):
             assert not hasattr(a, '_obj')
             a._obj = a_obj
 
@@ -449,53 +462,14 @@ class Stage(object):
         assert all([hasattr(a, '_obj') for a in self.outputs])
         output_objects = tuple(a._obj for a in self.outputs)
 
-        for a in filter(_is_like_sa, self.inputs):
+        for a in self.inputs:
             del a._obj
-        for a in source_arrays:
+        for a in self.sourceVariables:
             del a._obj
         for a in self.orderedVariables:
             del a._obj
 
         return output_objects
-
-
-#==============================================================================#
-#                           replace numpy operations                           #
-#==============================================================================#
-
-def add(x1, x2, out=None):
-    if _is_like_sa(x2):
-        return x2.__add__(x1)
-    else:
-        return np.add(x1, x2, out)
-
-def subtract(x1, x2, out=None):
-    if _is_like_sa(x2):
-        return (-x2).__add__(x1)
-    else:
-        return np.subtract(x1, x2, out)
-
-def multiply(x1, x2, out=None):
-    if _is_like_sa(x2):
-        return x2.__mul__(x1)
-    else:
-        return np.multiply(x1, x2, out)
-
-def true_divide(x1, x2, out=None):
-    if _is_like_sa(x2):
-        return (1.0 / x2).__mul__(x1)
-    else:
-        return np.true_divide(x1, x2, out)
-
-if np.set_numeric_ops()['add'] == np.add:
-    np.set_numeric_ops(add=add)
-if np.set_numeric_ops()['subtract'] == np.subtract:
-    np.set_numeric_ops(subtract=subtract)
-if np.set_numeric_ops()['multiply'] == np.multiply:
-    np.set_numeric_ops(multiply=multiply)
-if np.set_numeric_ops()['true_divide'] == np.true_divide:
-    np.set_numeric_ops(divide=true_divide)
-    np.set_numeric_ops(true_divide=true_divide)
 
 
 # ============================================================================ #
@@ -510,8 +484,7 @@ class TestSingleStage(unittest.TestCase):
 
         Ni, Nj = 16, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
-        heatStages = decompose(heat, stencil_array(),
-                source_objects=(G.i, G.j, G.zeros(())))
+        heatStages = decompose(heat, stencil_array())
 
         self.assertEqual(len(heatStages), 1)
         stage0 = heatStages[0]
@@ -544,8 +517,7 @@ class TestSingleStage(unittest.TestCase):
 
         Ni, Nj = 4, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
-        odeStages = decompose(ode, stencil_array(),
-                source_objects=(G.i, G.j, G.zeros(())))
+        odeStages = decompose(ode, stencil_array())
 
         self.assertEqual(len(odeStages), 1)
         stage0 = odeStages[0]
@@ -569,8 +541,7 @@ class TestMultiStage(unittest.TestCase):
 
         Ni, Nj = 16, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
-        heatStages = decompose(heatMidpoint, stencil_array(),
-                source_objects=(G.i, G.j, G.zeros(())))
+        heatStages = decompose(heatMidpoint, stencil_array())
 
         self.assertEqual(len(heatStages), 2)
         stage0, stage1 = heatStages
@@ -602,8 +573,7 @@ class TestMultiStage(unittest.TestCase):
 
         Ni, Nj = 16, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
-        ksStages = decompose(ks_rk4, stencil_array(),
-                source_objects=(G.i, G.j, G.zeros(())))
+        ksStages = decompose(ks_rk4, stencil_array())
 
         self.assertEqual(len(ksStages), 8)
 
@@ -617,6 +587,11 @@ class TestMultiStage(unittest.TestCase):
 # ============================================================================ #
 
 class TestTheano(unittest.TestCase):
+    @staticmethod
+    def ij_np(i0, i1, j0, j1):
+        return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
+               np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
+
     def testHeat(self):
         def heatMidpoint(u):
             dx, dt = 0.1, 0.01
@@ -624,17 +599,15 @@ class TestTheano(unittest.TestCase):
             return u + dt * (uh.x_m + uh.x_p + uh.y_m + uh.y_p - 4 * uh) / dx**2
 
         import sa2d_theano
-        heatStages = decompose(heatMidpoint, stencil_array(),
-                source_objects=(sa2d_theano.i, sa2d_theano.j,
-                                sa2d_theano.zeros(())))
+        heatStages = decompose(heatMidpoint, stencil_array())
 
         stage0, stage1 = heatStages
 
         Ni, Nj = 8, 8
-        i, j = sa2d_theano.ij_np(-1, Ni + 1, -1, Nj + 1)
+        i, j = self.ij_np(-1, Ni+1, -1, Nj+1)
         u0 = np.sin(i / Ni * np.pi * 2)
         compiled_stage0 = sa2d_theano.compile(stage0, (u0,))
-        stage0_out = compiled_stage0(u0, i, j)
+        stage0_out = compiled_stage0(u0)
 
         stage1_in = []
         for a, val in zip(stage0.outputs, stage0_out):
@@ -651,7 +624,7 @@ class TestTheano(unittest.TestCase):
 
         stage1_in = tuple(stage1_in)
         compiled_stage1 = sa2d_theano.compile(stage1, stage1_in)
-        stage1_out = compiled_stage1(*(stage1_in + (i, j)))
+        stage1_out = compiled_stage1(*stage1_in)
         self.assertEqual(len(stage1_out), 1)
         u1 = stage1_out[0]
 
