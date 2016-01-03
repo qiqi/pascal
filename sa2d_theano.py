@@ -6,6 +6,7 @@
 
 from __future__ import division
 
+import sys
 import unittest
 import operator
 import numpy as np
@@ -71,6 +72,8 @@ class stencil_array(object):
     Objects involved in computation.  It should be used like theano arrays,
     except functions like sin and exp should use the ones defined in this module
     '''
+    __context__ = sys.modules[__name__]
+
     def __init__(self, shape, tensor, has_ghost):
         assert tensor.ndim == len(shape) + 2
         for i in shape:

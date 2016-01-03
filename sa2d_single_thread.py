@@ -162,7 +162,7 @@ class psarray_base(object):
         assert grid.ny > 0
         self._data = data
         self._shape = shape
-        self._module = grid
+        self.__context__ = grid
 
     def copy(self):
         return self.grid.copy(self)

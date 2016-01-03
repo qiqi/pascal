@@ -4,6 +4,7 @@
 #                                                                              #
 # ============================================================================ #
 
+from __future__ import division
 import copy as copymodule
 import unittest
 import operator
@@ -25,11 +26,11 @@ def _is_like_sa(a):
         return False
 
 
-def _infer_module(a):
+def _infer_context(a):
     if isinstance(a, np.ndarray):
         return np
     else:
-        return a._module
+        return a.__context__
 
 
 # ============================================================================ #
@@ -202,19 +203,19 @@ class stencil_array(object):
 
 def transpose(x, axes=None):
     axes = copymodule.copy(axes)
-    return Op(lambda x : _infer_module(x).transpose(x, axes)).output
+    return Op(lambda x : _infer_context(x).transpose(x, axes)).output
 
 def reshape(x, shape):
-    shape = copymodule.copy(shape)
-    return Op(lambda x : _infer_module(x).reshape(x, shape)).output
+    shape = copycontext.copy(shape)
+    return Op(lambda x : _infer_context(x).reshape(x, shape)).output
 
 def roll(x, shift, axis=None):
-    shift, axis = copymodule.copy(shift), copymodule.copy(axis)
-    return Op(lambda x : _infer_module(x).roll(x, shift, axis)).output
+    shift, axis = copycontext.copy(shift), copycontext.copy(axis)
+    return Op(lambda x : _infer_context(x).roll(x, shift, axis)).output
 
 def copy(a):
-    shape = copymodule.copy(shape)
-    return Op(lambda x : _infer_module(x).copy(x, shape)).output
+    shape = copycontext.copy(shape)
+    return Op(lambda x : _infer_context(x).copy(x, shape)).output
 
 
 # ============================================================================ #
@@ -222,16 +223,16 @@ def copy(a):
 # ============================================================================ #
 
 def sin(a):
-    return Op(lambda x : _infer_module(x).sin(x), (a,)).output
+    return Op(lambda x : _infer_context(x).sin(x), (a,)).output
 
 def cos(a):
-    return Op(lambda x : _infer_module(x).cos(x), (a,)).output
+    return Op(lambda x : _infer_context(x).cos(x), (a,)).output
 
 def exp(a):
-    return Op(lambda x : _infer_module(x).exp(x), (a,)).output
+    return Op(lambda x : _infer_context(x).exp(x), (a,)).output
 
 def sum(a, axis=None):
-    pass #TODO
+    return Op(lambda x : _infer_context(x).sum(x), (a,)).output
 
 def mean(a, axis=None):
     pass #TODO
@@ -289,6 +290,14 @@ class decompose(object):
     # --------------------------------------------------------------------- #
 
     def _build_linear_program(self):
+        '''
+        solution: [c, k, g, K]
+        c: length n array of integers, the stage in which a variable is created;
+        k: length n array of integers, the stage in which a variable is killed;
+        g: length n array of 0 and 1's, bareness of array,
+           1 indicating it is bare, i.e, has no neighbors upon creation;
+           0 indicating it has one layer of neighbor upon creation.
+        '''
         A_eq, A_lt, b_eq, b_lt = [], [], [], []
 
         def add_eq(A_c, A_k, A_g, A_K, b):
@@ -299,8 +308,12 @@ class decompose(object):
             A_lt.append(np.hstack([A_c, A_k, A_g, A_K]))
             b_lt.append(b)
 
-        # build constraints
         n = len(self.variables)
+
+        # build bounds
+        bounds = [(0, None)] * (2 * n) + [(0, 1)] * n + [(0, None)]
+
+        # build constraints
         z = np.zeros(n)
         e = np.eye(n)
 
@@ -318,11 +331,6 @@ class decompose(object):
             i = a._variableId
             # a variable cannot be killed before it is born
             add_lt(e[i], -e[i], z, 0, 0)
-            # a variable has a bare-ness (g) between 0 and 1,
-            # 1 indicating it is bare, i.e, has no neighbors upon creation;
-            # 0 indicating it has one layer of neighbor upon creation.
-            add_lt(z, z, -e[i], 0, 0)
-            add_lt(z, z, e[i], 0, 1)
 
             if a.owner:
                 for b in a.owner.inputs:
@@ -347,16 +355,16 @@ class decompose(object):
         w = np.array([a.size for a in self.variables])
         c = np.hstack([-w, w, z, 0])
 
-        self._linear_program = c, A_eq, A_lt, b_eq, b_lt
+        self._linear_program = c, bounds, A_eq, A_lt, b_eq, b_lt
 
     # --------------------------------------------------------------------- #
 
     def _solve_linear_program(self):
-        c, A_eq, A_lt, b_eq, b_lt = self._linear_program
+        c, bounds, A_eq, A_lt, b_eq, b_lt = self._linear_program
         opt = {'maxiter': 2000, 'disp': True}
         print('solving linear program')
         self._linear_program_result = scipy.optimize.linprog(
-                c, A_lt, b_lt, A_eq, b_eq, options=opt)
+                c, A_lt, b_lt, A_eq, b_eq, bounds=bounds, options=opt)
         if not self._linear_program_result.success:
             print(self._linear_program_result)
 
