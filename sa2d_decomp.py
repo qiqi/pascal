@@ -83,7 +83,7 @@ class stencil_array(object):
         return np.prod(self.shape)
 
     def __len__(self):
-        return self.shape[0]
+        return 1 if not self.shape else self.shape[0]
 
     # --------------------------- operations ------------------------------ #
 
@@ -107,12 +107,6 @@ class stencil_array(object):
 
     def __rmul__(self, a):
         return Op(operator.mul, (a, self)).output
-
-    def __div__(self, a):
-        return self.__truediv__(a)
-
-    def __rdiv__(self, a):
-        return self.__rtruediv__(a)
 
     def __truediv__(self, a):
         return Op(operator.truediv, (self, a)).output
@@ -484,6 +478,45 @@ class Stage(object):
 #                                 unit tests                                   #
 # ============================================================================ #
 
+class TestSimpleUpdate(unittest.TestCase):
+    def test1(self):
+        def update(u):
+            return u.ndim + 2**u
+
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        stages = decompose(update, stencil_array())
+
+        self.assertEqual(len(stages), 1)
+        stage0 = stages[0]
+
+        u0 = G.i
+        result = stage0((u0,))
+        self.assertEqual(len(result), 1)
+        result = result[0]
+        err = result - 2**u0
+        self.assertAlmostEqual(0, G.reduce_sum(err**2))
+
+    def test2(self):
+        def update(u):
+            return u.size - 1 / u**3
+
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        stages = decompose(update, stencil_array((2,)))
+
+        self.assertEqual(len(stages), 1)
+        stage0 = stages[0]
+
+        u0 = G.i + G.ones(2)
+        result = stage0((u0,))
+        self.assertEqual(len(result), 1)
+        result = result[0]
+        err = result - (2 - 1 / u0**3)
+        self.assertAlmostEqual(0, G.reduce_sum((err**2).sum()))
+
+# ============================================================================ #
+
 class TestSingleStage(unittest.TestCase):
     def testHeat(self):
         def heat(u):
@@ -518,7 +551,7 @@ class TestSingleStage(unittest.TestCase):
         err = result - u0 * (1 - 2 * (1 - np.cos(np.pi * 4 / Nj)))
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
-    def testODE(self):
+    def testODE1(self):
         def ode(u):
             dt = 0.1
             return u - dt * sin(u)
@@ -535,6 +568,25 @@ class TestSingleStage(unittest.TestCase):
         self.assertEqual(len(result), 1)
         result = result[0]
         err = result - (G.i - 0.1 * G.sin(G.i))
+        self.assertAlmostEqual(0, G.reduce_sum(err**2))
+
+    def testODE2(self):
+        def ode(u):
+            dt = 0.1
+            return u - dt * cos(u) / len(u)
+
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        odeStages = decompose(ode, stencil_array())
+
+        self.assertEqual(len(odeStages), 1)
+        stage0 = odeStages[0]
+
+        u0 = G.i
+        result = stage0((u0,))
+        self.assertEqual(len(result), 1)
+        result = result[0]
+        err = result - (G.i - 0.1 * G.cos(G.i))
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
 

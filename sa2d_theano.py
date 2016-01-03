@@ -645,10 +645,10 @@ class TestSumMean(unittest.TestCase):
         self.assertAlmostEqual(abs(fa - 1.5).max(), 0)
 
     def testMean2(self):
-        def mean1(a):
+        def mean2(a):
             return a.mean(1)
         a = np.zeros([3,4,3,4]) + np.arange(4)
-        f = compile(mean1, a)
+        f = compile(mean2, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,3))
         self.assertAlmostEqual(abs(fa - 1.5).max(), 0)
