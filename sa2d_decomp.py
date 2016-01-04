@@ -5,9 +5,13 @@
 # ============================================================================ #
 
 from __future__ import division
+
 import copy as copymodule
+import sys
+import pickle
 import unittest
 import operator
+import collections
 import numpy as np
 import theano
 import theano.tensor as T
@@ -47,13 +51,14 @@ class Op(object):
         inputs: a list of stencil array
     '''
     def __init__(self, operation, inputs, access_neighbor=False,
-                 dummy_func=np.ones):
+                 dummy_func=np.ones, shape=None):
         self.operation = operation
         self.inputs = copymodule.copy(tuple(inputs))
 
         produce_dummy = lambda a : dummy_func(a.shape) if _is_like_sa(a) else a
         dummy_inputs = tuple(produce_dummy(a) for a in self.inputs)
-        shape = operation(*dummy_inputs).shape
+        if shape is None:
+            shape = operation(*dummy_inputs).shape
 
         self.access_neighbor = access_neighbor
         self.output = stencil_array(shape, self)
@@ -186,8 +191,13 @@ class stencil_array(object):
         if self.owner:
             self.owner.output = copied_self
 
-        self.owner = Op(lambda x, a : x.__setitem__(ind, a), (copied_self, a))
-        self.shape = self.owner.result.shape
+        ind = copymodule.copy(ind)
+        def op(x, a):
+            x = copymodule.copy(x)
+            print(ind, x.shape, a.shape)
+            x[ind] = a
+            return x
+        self.owner = Op(op, (copied_self, a), shape=self.shape)
         self.owner.output = self
 
 
@@ -197,19 +207,22 @@ class stencil_array(object):
 
 def transpose(x, axes=None):
     axes = copymodule.copy(axes)
-    return Op(lambda x : _infer_context(x).transpose(x, axes)).output
+    op = lambda x : x.transpose(axes)
+    return Op(op, (x,)).output
 
 def reshape(x, shape):
-    shape = copycontext.copy(shape)
-    return Op(lambda x : _infer_context(x).reshape(x, shape)).output
+    shape = copymodule.copy(shape)
+    op = lambda x : x.reshape(shape)
+    return Op(op, (x,)).output
 
 def roll(x, shift, axis=None):
-    shift, axis = copycontext.copy(shift), copycontext.copy(axis)
-    return Op(lambda x : _infer_context(x).roll(x, shift, axis)).output
+    shift, axis = copymodule.copy(shift), copymodule.copy(axis)
+    op = lambda x : _infer_context(x).roll(x, shift, axis)
+    return Op(op, (x,)).output
 
-def copy(a):
-    shape = copycontext.copy(shape)
-    return Op(lambda x : _infer_context(x).copy(x, shape)).output
+def copy(x):
+    op = lambda x : x.copy()
+    return Op(op, (x,)).output
 
 
 # ============================================================================ #
@@ -226,10 +239,12 @@ def exp(a):
     return Op(lambda x : _infer_context(x).exp(x), (a,)).output
 
 def sum(a, axis=None):
-    return Op(lambda x : _infer_context(x).sum(x), (a,)).output
+    axis = copymodule.copy(axis)
+    return Op(lambda x : _infer_context(x).sum(x, axis), (a,)).output
 
 def mean(a, axis=None):
-    pass #TODO
+    axis = copymodule.copy(axis)
+    return Op(lambda x : _infer_context(x).mean(x, axis), (a,)).output
 
 # ============================================================================ #
 #                             built-in source array                            #
@@ -349,18 +364,40 @@ class decompose(object):
         w = np.array([a.size for a in self.variables])
         c = np.hstack([-w, w, z, 0])
 
-        self._linear_program = c, bounds, A_eq, A_lt, b_eq, b_lt
+        LP = collections.namedtuple('LP', 'c, bounds, A_eq, A_lt, b_eq, b_lt')
+        self._linear_program = LP(c, bounds, A_eq, A_lt, b_eq, b_lt)
 
     # --------------------------------------------------------------------- #
 
-    def _solve_linear_program(self):
+    def _solve_linear_program(self, verbose):
         c, bounds, A_eq, A_lt, b_eq, b_lt = self._linear_program
-        opt = {'maxiter': 2000, 'disp': True}
-        print('solving linear program')
-        self._linear_program_result = scipy.optimize.linprog(
+
+        if verbose:
+            lp = self._linear_program
+            lpSize = len(lp.c), len(lp.b_eq) + len(lp.b_lt)
+            print('\nDecomposing update formula')
+            print('\t{0} variables'.format(len(self.variables)))
+            print('\tsolving {0}x{1} linear program'.format(*lpSize))
+            sys.stdout.flush()
+
+        opt = {'maxiter': 20000}
+        sol = scipy.optimize.linprog(
                 c, A_lt, b_lt, A_eq, b_eq, bounds=bounds, options=opt)
-        if not self._linear_program_result.success:
-            print(self._linear_program_result)
+
+        assert all([abs(xi - round(xi)) < 1E-12 for xi in sol.x]), \
+               'Linear Program Finished with non-integer results'
+        self._linear_program_result = sol
+
+        if verbose:
+            K = int(round(sol.x[-1]))
+            objective = int(round(np.dot(lp.c, sol.x)))
+            print('Decomposed into {0} atomic stages'.format(K+1))
+            status = ['Optimality achieved', 'Max iteration reached',
+                      'Problem seems infeasible', 'Problems seems unbounded']
+            print('\tStatus: ' + status[sol.status])
+            print('\tobjective function = {0}'.format(objective))
+            print('\tafter {0} iterations'.format(sol.nit))
+            sys.stdout.flush()
 
     # --------------------------------------------------------------------- #
 
@@ -370,9 +407,6 @@ class decompose(object):
         assert c.size == len(self.variables)
 
         for i, a in enumerate(self.variables):
-            isInt = lambda x : abs(x - round(x)) < 1E-12
-            assert isInt(k[i]) and isInt(c[i]) and isInt(g[i])
-
             a = self.variables[i]
             a.createStage = int(round(c[i]))
             a.killStage = int(round(k[i]))
@@ -380,11 +414,11 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
-    def __init__(self, func, inputs):
+    def __init__(self, func, inputs, verbose=True):
         self._build_computational_graph(func, inputs)
         self._assign_id_to_variables()
         self._build_linear_program()
-        self._solve_linear_program()
+        self._solve_linear_program(verbose)
         self._assign_lp_results_to_vars()
 
         self.stages = [Stage(self.variables, self.inputs, self.outputs,
@@ -478,7 +512,7 @@ class Stage(object):
 #                                 unit tests                                   #
 # ============================================================================ #
 
-class TestSimpleUpdate(unittest.TestCase):
+class TestSimpleUpdates(unittest.TestCase):
     def test1(self):
         def update(u):
             return u.ndim + 2**u
@@ -499,7 +533,7 @@ class TestSimpleUpdate(unittest.TestCase):
 
     def test2(self):
         def update(u):
-            return u.size - 1 / u**3
+            return u.size - 1 / (-u)**3 * 2
 
         Ni, Nj = 4, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
@@ -512,8 +546,78 @@ class TestSimpleUpdate(unittest.TestCase):
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
         result = result[0]
-        err = result - (2 - 1 / u0**3)
+        err = result - (2 + 2 / u0**3)
         self.assertAlmostEqual(0, G.reduce_sum((err**2).sum()))
+
+    def testExpCopySumMean(self):
+        def update(u):
+            return exp(u).copy().sum(0).mean()
+
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        stages = decompose(update, stencil_array((2,3)))
+
+        self.assertEqual(len(stages), 1)
+        stage0 = stages[0]
+
+        u0 = G.i + G.ones((2,3)) + np.arange(3)
+        result = stage0((u0,))
+        self.assertEqual(len(result), 1)
+        result = result[0]
+        err = result - G.exp(u0).sum(0).mean()
+        self.assertAlmostEqual(0, G.reduce_sum((err**2).sum()))
+
+    def testTransposeReshapeRoll(self):
+        def update(u):
+            return roll(u.transpose([1,0,2]).reshape([3,-1]).T, 1)
+
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        stages = decompose(update, stencil_array((2,3,4)))
+
+        self.assertEqual(len(stages), 1)
+        stage0 = stages[0]
+
+        u0 = G.i + G.ones((2,3,4)) + np.arange(4)
+        result = stage0((u0,))
+        self.assertEqual(len(result), 1)
+        result = result[0]
+        err = result - G.roll(u0.transpose([1,0,2]).reshape([3,-1]).T, 1)
+        self.assertAlmostEqual(0, G.reduce_sum((err**2).sum()))
+
+    def testSetGetItem(self):
+        def update(u):
+            v = zeros([3,2])
+            v[0] = ones(2)
+            v[1,0] = u[0]
+            v[2] = u.x_p + u.x_m - 2 * u
+            return v
+
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        stages = decompose(update, [0,0])
+
+        self.assertEqual(len(stages), 1)
+        stage0 = stages[0]
+
+        self.assertEqual(stage0.sourceVariables, (_zero,))
+        source_objects = (G.zeros(()),)
+
+        u0 = G.i + np.arange(2) * 8
+        result = stage0((u0,), source_objects)
+        self.assertEqual(len(result), 1)
+        result = result[0]
+
+        err_0 = result[0] - 1
+        err_10 = result[1,0] - u0[0]
+        err_11 = result[1,1]
+        err_2 = result[2] - (u0.x_p + u0.x_m - 2 * u0)
+
+        self.assertAlmostEqual(0, G.reduce_sum((err_0**2).sum()))
+        self.assertAlmostEqual(0, G.reduce_sum((err_10**2).sum()))
+        self.assertAlmostEqual(0, G.reduce_sum((err_11**2).sum()))
+        self.assertAlmostEqual(0, G.reduce_sum((err_2**2).sum()))
+
 
 # ============================================================================ #
 
@@ -699,35 +803,6 @@ class TestTheano(unittest.TestCase):
 
 if __name__ == '__main__':
     import sa2d_single_thread
-
-    #       def ks_dudt(u):
-    #           dx = 0.1
-    #           lu = (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
-    #           llu = (lu.x_m + lu.x_p + lu.y_m + lu.y_p - 4 * u) / dx**2
-    #           ux = (u.x_m - u.x_p) / dx
-    #           return -llu - lu - ux * u
-
-    #       def ks_rk4(u0):
-    #           dt = 0.01
-    #           du0 = dt * ks_dudt(u0)
-    #           du1 = dt * ks_dudt(u0 + 0.5 * du0)
-    #           du2 = dt * ks_dudt(u0 + 0.5 * du1)
-    #           du3 = dt * ks_dudt(u0 + du2)
-    #           return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
-
-    #       Ni, Nj = 16, 8
-    #       G = sa2d_single_thread.grid2d(Ni, Nj)
-    #       ksStages = decompose(ks_rk4, stencil_array(),
-    #               source_objects=(G.i, G.j, G.zeros(())))
-
-    #       assert len(ksStages) == 8
-
-    #       inp = (G.sin(G.i / Ni * np.pi * 2),)
-    #       for i in range(8):
-    #           inp = ksStages[i](inp)
-
-    #       assert len(inp) == 1
-
     unittest.main()
 
 ################################################################################

@@ -158,13 +158,9 @@ class stencil_array(object):
 
     # ------------------------ neighbor access -------------------------- #
 
-    def _assert_has_ghost(self):
-        if not self.has_ghost:
-            raise ValueError('has no ghost')
-
     @property
     def x_p(self):
-        self._assert_has_ghost()
+        assert self.has_ghost, 'Has No Ghost'
         if _is_broadcastable(self.tensor):
             return self
         else:
@@ -172,7 +168,7 @@ class stencil_array(object):
 
     @property
     def x_m(self):
-        self._assert_has_ghost()
+        assert self.has_ghost, 'Has No Ghost'
         if _is_broadcastable(self.tensor):
             return self
         else:
@@ -180,7 +176,7 @@ class stencil_array(object):
 
     @property
     def y_p(self):
-        self._assert_has_ghost()
+        assert self.has_ghost, 'Has No Ghost'
         if _is_broadcastable(self.tensor):
             return self
         else:
@@ -188,7 +184,7 @@ class stencil_array(object):
 
     @property
     def y_m(self):
-        self._assert_has_ghost()
+        assert self.has_ghost, 'Has No Ghost'
         if _is_broadcastable(self.tensor):
             return self
         else:

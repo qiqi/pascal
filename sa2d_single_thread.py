@@ -116,6 +116,14 @@ class grid2d(object):
         assert x.grid is self
         return self._array(self._math.cos(x._data), x.shape)
 
+    def sum(self, x, axis=None):
+        assert x.grid is self
+        return x.sum(axis)
+
+    def mean(self, x, axis=None):
+        assert x.grid is self
+        return x.mean(axis)
+
     def copy(self, x):
         assert x.grid is self
         return self._array(x._data.copy(), x.shape)
@@ -137,7 +145,9 @@ class grid2d(object):
             data = self._math.roll(x._data, shift, axis+2)
         return self._array(data, x.shape)
 
-
+    def reshape(self, x, shape):
+        data = x._data.reshape((self.nx, self.ny) + tuple(shape))
+        return self._array(data, data.shape[2:])
 
     # -------------------------------------------------------------------- #
     #                            global operations                         #
@@ -365,12 +375,23 @@ class psarray_base(object):
             shape = np.ones(self.shape).sum(axis).shape
             return self.grid._array(self._data.sum(axis + 2), shape)
 
+    def mean(self, axis=None):
+        if axis is None:
+            data = self._data.reshape((self.grid.nx, self.grid.ny, -1)).mean(2)
+            return self.grid._array(data, ())
+        else:
+            shape = np.ones(self.shape).mean(axis).shape
+            return self.grid._array(self._data.mean(axis + 2), shape)
+
     def transpose(self, axis=None):
         return self.grid.transpose(self, axis)
 
     @property
     def T(self):
         return self.grid.transpose(self)
+
+    def reshape(self, shape):
+        return self.grid.reshape(self, shape)
 
 
 #==============================================================================#
