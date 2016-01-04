@@ -16,7 +16,9 @@ import numpy as np
 import theano
 import theano.tensor as T
 import scipy.optimize
+import scipy.io
 
+GLOBAL_MAX_STAGES = 128
 
 # ============================================================================ #
 
@@ -194,7 +196,6 @@ class stencil_array(object):
         ind = copymodule.copy(ind)
         def op(x, a):
             x = copymodule.copy(x)
-            print(ind, x.shape, a.shape)
             x[ind] = a
             return x
         self.owner = Op(op, (copied_self, a), shape=self.shape)
@@ -320,7 +321,8 @@ class decompose(object):
         n = len(self.variables)
 
         # build bounds
-        bounds = [(0, None)] * (2 * n) + [(0, 1)] * n + [(0, None)]
+        non_negative = (0, GLOBAL_MAX_STAGES)
+        bounds = [non_negative] * (2 * n) + [(0, 1)] * n + [non_negative]
 
         # build constraints
         z = np.zeros(n)
@@ -365,11 +367,16 @@ class decompose(object):
         c = np.hstack([-w, w, z, 0])
 
         LP = collections.namedtuple('LP', 'c, bounds, A_eq, A_lt, b_eq, b_lt')
-        self._linear_program = LP(c, bounds, A_eq, A_lt, b_eq, b_lt)
+        self._linear_program = LP(np.array(c, float), np.array(bounds, float),
+                                  np.array(A_eq, float), np.array(A_lt, float),
+                                  np.array(b_eq, float), np.array(b_lt, float))
 
     # --------------------------------------------------------------------- #
 
-    def _solve_linear_program(self, verbose):
+    def _solve_linear_program(self, verbose, save_mat=None):
+        if save_mat:
+            scipy.io.savemat(save_mat, self._linear_program._asdict())
+
         c, bounds, A_eq, A_lt, b_eq, b_lt = self._linear_program
 
         if verbose:
@@ -380,7 +387,7 @@ class decompose(object):
             print('\tsolving {0}x{1} linear program'.format(*lpSize))
             sys.stdout.flush()
 
-        opt = {'maxiter': 20000}
+        opt = {'maxiter': 10000}
         sol = scipy.optimize.linprog(
                 c, A_lt, b_lt, A_eq, b_eq, bounds=bounds, options=opt)
 
@@ -414,11 +421,11 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
-    def __init__(self, func, inputs, verbose=True):
+    def __init__(self, func, inputs, verbose=True, save_mat=None):
         self._build_computational_graph(func, inputs)
         self._assign_id_to_variables()
         self._build_linear_program()
-        self._solve_linear_program(verbose)
+        self._solve_linear_program(verbose, save_mat)
         self._assign_lp_results_to_vars()
 
         self.stages = [Stage(self.variables, self.inputs, self.outputs,
@@ -750,6 +757,97 @@ class TestMultiStage(unittest.TestCase):
 
 # ============================================================================ #
 
+class TestEuler(unittest.TestCase):
+    def testTunnelRk4(self):
+
+        DISS_COEFF = 0.0025
+        gamma, R = 1.4, 287.
+        T0, p0, M0 = 300., 101325., 0.25
+
+        rho0 = p0 / (R * T0)
+        c0 = np.sqrt(gamma * R * T0)
+        u0 = c0 * M0
+        w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
+
+        Lx, Ly = 40., 10.
+        dx = dy = 0.05
+        dt = dx / c0 * 0.5
+
+        Ni, Nj = 16, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+
+        x = (G.i + 0.5) * dx - 0.2 * Lx
+        y = (G.j + 0.5) * dy - 0.5 * Ly
+
+        obstacle = G.exp(-((x**2 + y**2) / 1)**64)
+        fan = 2 * G.cos((x / Lx + 0.2) * np.pi)**64
+
+        def diffx(w):
+            return (w.x_p - w.x_m) / (2 * dx)
+
+        def diffy(w):
+            return (w.y_p - w.y_m) / (2 * dy)
+
+        def dissipation(r, u, dc):
+            # conservative, negative definite dissipation applied to r*d(ru)/dt
+            laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
+            return laplace(dc * r * r * laplace(u))
+
+        def rhs(w):
+            r, ru, rv, p = w
+            u, v = ru / r, rv / r
+
+            mass = diffx(r * ru) + diffy(r * rv)
+            momentum_x = (diffx(ru*ru) + (r*ru) * diffx(u)) / 2.0 \
+                       + (diffy(rv*ru) + (r*rv) * diffy(u)) / 2.0 \
+                       + diffx(p)
+            momentum_y = (diffx(ru*rv) + (r*ru) * diffx(v)) / 2.0 \
+                       + (diffy(rv*rv) + (r*rv) * diffy(v)) / 2.0 \
+                       + diffy(p)
+            energy = gamma * (diffx(p * u) + diffy(p * v)) \
+                   - (gamma - 1) * (u * diffx(p) + v * diffy(p))
+
+            one = ones(r.shape)
+            dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
+            dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
+            dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
+
+            momentum_x += dissipation_x
+            momentum_y += dissipation_y
+            energy += dissipation_p \
+                    - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
+
+            rhs_w = zeros(w.shape)
+            rhs_w[0] = 0.5 * mass / r
+            rhs_w[1] = momentum_x / r
+            rhs_w[2] = momentum_y / r
+            rhs_w[-1] = energy
+
+            rhs_w[1:3] += 0.1 * c0 * obstacle * w[1:3]
+            rhs_w += 0.1 * c0 * (w - w0) * fan
+
+            return rhs_w
+
+        def step(w):
+            dw0 = -dt * rhs(w)
+            dw1 = -dt * rhs(w + 0.5 * dw0)
+            dw2 = -dt * rhs(w + 0.5 * dw1)
+            dw3 = -dt * rhs(w + dw2)
+            return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
+
+        stages = decompose(step, stencil_array((4,)), save_mat='euler.mat')
+        self.assertEqual(len(stages), 8)
+
+        inp = (G.sin(G.i / Ni * np.pi * 2) + np.zeros(4),)
+        for i in range(8):
+            inp = ksStages[i](inp)
+
+        self.assertEqual(len(inp), 1)
+        self.assertEqual(inp[0].shape, (4,))
+
+
+# ============================================================================ #
+
 class TestTheano(unittest.TestCase):
     @staticmethod
     def ij_np(i0, i1, j0, j1):
@@ -849,7 +947,8 @@ class TestTheano(unittest.TestCase):
 
 if __name__ == '__main__':
     import sa2d_single_thread
-    unittest.main()
+    TestEuler().testTunnelRk4()
+    # unittest.main()
 
 ################################################################################
 ################################################################################
