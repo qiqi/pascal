@@ -757,45 +757,91 @@ class TestTheano(unittest.TestCase):
                np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
 
     def testHeat(self):
+        f = stencil_array()
+
+        def heat(u):
+            dx = 0.1
+            return (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2 + f
+
         def heatMidpoint(u):
-            dx, dt = 0.1, 0.01
-            uh = u + 0.5 * dt * (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
-            return u + dt * (uh.x_m + uh.x_p + uh.y_m + uh.y_p - 4 * uh) / dx**2
+            dt = 0.01
+            uh = u + 0.5 * dt * heat(u)
+            return u + dt * heat(uh)
 
-        import sa2d_theano
         heatStages = decompose(heatMidpoint, stencil_array())
-
-        stage0, stage1 = heatStages
 
         Ni, Nj = 8, 8
         i, j = self.ij_np(-1, Ni+1, -1, Nj+1)
         u0 = np.sin(i / Ni * np.pi * 2)
-        compiled_stage0 = sa2d_theano.compile(stage0, (u0,))
-        stage0_out = compiled_stage0(u0)
+        f0 = u0 * 0
 
-        stage1_in = []
-        for a, val in zip(stage0.outputs, stage0_out):
-            if a.hasNeighbor:
-                stage1_in.append(val)
-            else:
-                val_with_nbr = np.zeros((Ni + 2, Nj + 2) + val.shape[2:])
-                val_with_nbr[1:-1,1:-1] = val
-                val_with_nbr[0,1:-1] = val[-1,:]
-                val_with_nbr[-1,1:-1] = val[0,:]
-                val_with_nbr[1:-1,0] = val[:,-1]
-                val_with_nbr[1:-1,-1] = val[:,0]
-                stage1_in.append(val_with_nbr)
-
-        stage1_in = tuple(stage1_in)
-        compiled_stage1 = sa2d_theano.compile(stage1, stage1_in)
-        stage1_out = compiled_stage1(*stage1_in)
-        self.assertEqual(len(stage1_out), 1)
-        u1 = stage1_out[0]
+        u1, = self.runStages(heatStages, u0, f0)
 
         dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
         err = u1 - u0[1:-1,1:-1] * (1 - dudt + dudt**2 / 2)
 
         self.assertAlmostEqual(0, np.abs(err).max())
+
+    def testKuramotoSivashinskyRk4(self):
+        f = stencil_array()
+
+        def ks_dudt(u):
+            dx = 0.1
+            lu = (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
+            llu = (lu.x_m + lu.x_p + lu.y_m + lu.y_p - 4 * u) / dx**2
+            ux = (u.x_m - u.x_p) / dx
+            return -llu - lu - ux * u + f
+
+        def ks_rk4(u0):
+            dt = 0.01
+            du0 = dt * ks_dudt(u0)
+            du1 = dt * ks_dudt(u0 + 0.5 * du0)
+            du2 = dt * ks_dudt(u0 + 0.5 * du1)
+            du3 = dt * ks_dudt(u0 + du2)
+            return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
+
+        ksStages = decompose(ks_rk4, stencil_array())
+
+        Ni, Nj = 8, 8
+        i, j = self.ij_np(-1, Ni+1, -1, Nj+1)
+        u0 = np.sin(i / Ni * np.pi * 2)
+        f0 = u0 * 0
+
+        u1, = self.runStages(ksStages, u0, f0)
+
+    @staticmethod
+    def runStages(stages, u0, f0):
+        import sa2d_theano
+        stage_in = (u0,)
+        for k, stage in enumerate(stages):
+            if stage.sourceVariables:
+                stage_func = lambda inp : stage(inp[:-1], inp[-1:])
+                stage_in = stage_in + (f0,)
+                compiled_stage = sa2d_theano.compile(stage_func, stage_in)
+            else:
+                compiled_stage = sa2d_theano.compile(stage, stage_in)
+            stage_out = compiled_stage(*stage_in)
+
+            if k == len(stages) - 1:
+                break
+
+            stage_in = []
+            for a, val in zip(stage.outputs, stage_out):
+                if a.hasNeighbor:
+                    stage_in.append(val)
+                else:
+                    Ni, Nj = val.shape[:2]
+                    val_with_nbr = np.zeros((Ni+2, Nj+2) + val.shape[2:])
+                    val_with_nbr[1:-1,1:-1] = val
+                    val_with_nbr[0,1:-1] = val[-1,:]
+                    val_with_nbr[-1,1:-1] = val[0,:]
+                    val_with_nbr[1:-1,0] = val[:,-1]
+                    val_with_nbr[1:-1,-1] = val[:,0]
+                    stage_in.append(val_with_nbr)
+
+            stage_in = tuple(stage_in)
+
+        return stage_out
 
 # ============================================================================ #
 #                                                                              #
