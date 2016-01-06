@@ -488,6 +488,7 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
+    '''
     def _solve_linear_program_scipy(self):
         c, bounds, A_eq, A_le, b_eq, b_le = self._linear_program
 
@@ -506,6 +507,7 @@ class decompose(object):
                   3 : 'Problem appears to be unbounded'}[sol.status]
 
         self._linear_program_result = self.LPRes(x, objective, status)
+    '''
 
     # --------------------------------------------------------------------- #
 
@@ -682,6 +684,12 @@ class Stage(object):
 # ============================================================================ #
 #                                 unit tests                                   #
 # ============================================================================ #
+
+class TestMisc(unittest.TestCase):
+    def testPrint(self):
+        a = stencil_array()
+        b = a * 2
+        print(a, b)
 
 class TestSimpleUpdates(unittest.TestCase):
     def test1(self):
