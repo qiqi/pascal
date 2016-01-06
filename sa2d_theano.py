@@ -57,10 +57,18 @@ def _binary_op(op, a, b):
         return stencil_array(shape, op(at, bt), a.has_ghost and b.has_ghost)
     elif _is_like_sa(a):
         shape = op(np.ones(a.shape), b).shape
-        return stencil_array(shape, op(a.tensor, b), a.has_ghost)
+        if len(shape) > a.ndim:
+            at = _promote_ndim(a.tensor, len(shape) + 2)
+        else:
+            at = a.tensor
+        return stencil_array(shape, op(at, b), a.has_ghost)
     elif _is_like_sa(b):
         shape = op(a, np.ones(b.shape)).shape
-        return stencil_array(shape, op(a, b.tensor), b.has_ghost)
+        if len(shape) > b.ndim:
+            bt = _promote_ndim(b.tensor, len(shape) + 2)
+        else:
+            bt = b.tensor
+        return stencil_array(shape, op(a, bt), b.has_ghost)
 
 
 # ============================================================================ #
@@ -98,7 +106,7 @@ class stencil_array(object):
     # --------------------------- operations ------------------------------ #
 
     # asks ndarray to use the __rops__ defined in this class
-    __array_priority__ = 100
+    __array_priority__ = 3000
 
     def __add__(self, a):
         return _binary_op(operator.add, self, a)

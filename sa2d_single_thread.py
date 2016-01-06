@@ -242,7 +242,7 @@ class psarray_base(object):
     # -------------------------------------------------------------------- #
 
     # asks ndarray to use the __rops__ defined in this class
-    __array_priority__ = 100
+    __array_priority__ = 2000
 
     def __neg__(self):
         return self.grid._array(-self._data, self.shape)

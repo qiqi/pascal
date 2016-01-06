@@ -152,7 +152,7 @@ class stencil_array(object):
     # --------------------------- operations ------------------------------ #
 
     # asks ndarray to use the __rops__ defined in this class
-    __array_priority__ = 200
+    __array_priority__ = 4000
 
     def __add__(self, a):
         a = a.value if _is_like_sa(a) else a
@@ -354,13 +354,13 @@ def mean(a, axis=None):
 #                             built-in source array                            #
 # ============================================================================ #
 
-_zero = stencil_array_value()
+G_ZERO = stencil_array_value()
 
 def ones(shape=()):
-    return stencil_array(_zero) + np.ones(shape)
+    return stencil_array(G_ZERO) + np.ones(shape)
 
 def zeros(shape=()):
-    return stencil_array(_zero) + np.zeros(shape)
+    return stencil_array(G_ZERO) + np.zeros(shape)
 
 
 # ============================================================================ #
@@ -399,7 +399,7 @@ class decompose(object):
     def _assign_id_to_values(self):
         self.values = []
         def set_value_id(a):
-            if _is_like_sa_value(a) and not hasattr(a, '_valueId'):
+            if _is_like_sa_value(a) and a not in self.values:
                 a._valueId = len(self.values)
                 self.values.append(a)
                 if a.owner:
@@ -407,6 +407,9 @@ class decompose(object):
                         set_value_id(inp)
         for out in self.outputs:
             set_value_id(out)
+
+        self.values = list(self.values)
+        assert all([a._valueId < len(self.values) for a in self.values])
 
     # --------------------------------------------------------------------- #
 
@@ -457,6 +460,7 @@ class decompose(object):
             if a.owner:
                 for b in a.owner.inputs:
                     if _is_like_sa_value(b):
+                        assert b in self.values
                         j = b._valueId
                         # a child cannot be born before its parent is born
                         add_le(e[j] - e[i], z, z, 0, 0)
@@ -767,7 +771,7 @@ class TestSimpleUpdates(unittest.TestCase):
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
 
-        self.assertEqual(stage0.sourceValues, (_zero,))
+        self.assertEqual(stage0.sourceValues, (G_ZERO,))
         source_objects = (G.zeros(()),)
 
         u0 = G.i + np.arange(2) * 8
@@ -917,8 +921,109 @@ class TestMultiStage(unittest.TestCase):
 
 # ============================================================================ #
 
+def ij_np(i0, i1, j0, j1):
+    return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
+           np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
+
+def runStages(stages, u0, source_dict):
+    import sa2d_theano
+    Ni = u0.shape[0] - 2
+    Nj = u0.shape[1] - 2
+    stage_in = (u0,)
+    for k, stage in enumerate(stages):
+        if stage.sourceValues:
+            ns = len(stage.sourceValues)
+            stage_func = lambda inp : stage(inp[:-ns], inp[-ns:])
+            stage_in = stage_in + \
+                    tuple(source_dict[s] for s in stage.sourceValues)
+            compiled_stage = sa2d_theano.compile(stage_func, stage_in)
+        else:
+            compiled_stage = sa2d_theano.compile(stage, stage_in)
+        stage_out = compiled_stage(*stage_in)
+
+        if k == len(stages) - 1:
+            break
+
+        stage_in = []
+        for a, val in zip(stage.outputs, stage_out):
+            assert val.shape[:2] == (Ni+2, Nj+2) or \
+                   val.shape[:2] == (Ni, Nj)
+            if val.shape[0] == Ni + 2:
+                stage_in.append(val)
+            else:
+                val_with_nbr = np.zeros((Ni+2, Nj+2) + val.shape[2:])
+                val_with_nbr[1:-1,1:-1] = val
+                val_with_nbr[0,1:-1] = val[-1,:]
+                val_with_nbr[-1,1:-1] = val[0,:]
+                val_with_nbr[1:-1,0] = val[:,-1]
+                val_with_nbr[1:-1,-1] = val[:,0]
+                stage_in.append(val_with_nbr)
+
+        stage_in = tuple(stage_in)
+
+    return stage_out
+
+# ---------------------------------------------------------------------------- #
+
+class TestTheano(unittest.TestCase):
+    def testHeat(self):
+        f = stencil_array()
+
+        def heat(u):
+            dx = 0.1
+            return (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2 + f
+
+        def heatMidpoint(u):
+            dt = 0.01
+            uh = u + 0.5 * dt * heat(u)
+            return u + dt * heat(uh)
+
+        heatStages = decompose(heatMidpoint, stencil_array())
+
+        Ni, Nj = 8, 8
+        i, j = ij_np(-1, Ni+1, -1, Nj+1)
+        u0 = np.sin(i / Ni * np.pi * 2)
+        f0 = u0 * 0
+
+        u1, = runStages(heatStages, u0, {f.value: f0})
+
+        dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
+        err = u1 - u0[1:-1,1:-1] * (1 - dudt + dudt**2 / 2)
+
+        self.assertAlmostEqual(0, np.abs(err).max())
+
+    def testKuramotoSivashinskyRk4(self):
+        f = stencil_array()
+
+        def ks_dudt(u):
+            dx = 0.1
+            lu = (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
+            llu = (lu.x_m + lu.x_p + lu.y_m + lu.y_p - 4 * u) / dx**2
+            ux = (u.x_m - u.x_p) / dx
+            return -llu - lu - ux * u + f
+
+        def ks_rk4(u0):
+            dt = 0.01
+            du0 = dt * ks_dudt(u0)
+            du1 = dt * ks_dudt(u0 + 0.5 * du0)
+            du2 = dt * ks_dudt(u0 + 0.5 * du1)
+            du3 = dt * ks_dudt(u0 + du2)
+            return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
+
+        ksStages = decompose(ks_rk4, stencil_array())
+
+        Ni, Nj = 8, 8
+        i, j = ij_np(-1, Ni+1, -1, Nj+1)
+        u0 = np.sin(i / Ni * np.pi * 2)
+        f0 = u0 * 0
+
+        u1, = runStages(ksStages, u0, {f.value: f0})
+
+
+# ============================================================================ #
+
 class TestEuler(unittest.TestCase):
-    def notestTunnelRk4(self):
+    def testTunnelRk4(self):
 
         DISS_COEFF = 0.0025
         gamma, R = 1.4, 287.
@@ -1009,104 +1114,93 @@ class TestEuler(unittest.TestCase):
         self.assertEqual(len(inp), 1)
         self.assertEqual(inp[0].shape, (4,))
 
+    def testTunnelRk4Theano(self):
 
-# ============================================================================ #
+        DISS_COEFF = 0.0025
+        gamma, R = 1.4, 287.
+        T0, p0, M0 = 300., 101325., 0.25
 
-class TestTheano(unittest.TestCase):
-    @staticmethod
-    def ij_np(i0, i1, j0, j1):
-        return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
-               np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
+        rho0 = p0 / (R * T0)
+        c0 = np.sqrt(gamma * R * T0)
+        u0 = c0 * M0
+        w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
 
-    def testHeat(self):
-        f = stencil_array()
-
-        def heat(u):
-            dx = 0.1
-            return (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2 + f
-
-        def heatMidpoint(u):
-            dt = 0.01
-            uh = u + 0.5 * dt * heat(u)
-            return u + dt * heat(uh)
-
-        heatStages = decompose(heatMidpoint, stencil_array())
+        Lx, Ly = 40., 10.
+        dx = dy = 0.05
+        dt = dx / c0 * 0.5
 
         Ni, Nj = 8, 8
-        i, j = self.ij_np(-1, Ni+1, -1, Nj+1)
-        u0 = np.sin(i / Ni * np.pi * 2)
-        f0 = u0 * 0
 
-        u1, = self.runStages(heatStages, u0, f0)
+        i, j = stencil_array(), stencil_array()
+        x = (i + 0.5) * dx - 0.2 * Lx
+        y = (j + 0.5) * dy - 0.5 * Ly
 
-        dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
-        err = u1 - u0[1:-1,1:-1] * (1 - dudt + dudt**2 / 2)
+        obstacle = exp(-((x**2 + y**2) / 1)**64)
+        fan = 2 * cos((x / Lx + 0.2) * np.pi)**64
 
-        self.assertAlmostEqual(0, np.abs(err).max())
+        def diffx(w):
+            return (w.x_p - w.x_m) / (2 * dx)
 
-    def testKuramotoSivashinskyRk4(self):
-        f = stencil_array()
+        def diffy(w):
+            return (w.y_p - w.y_m) / (2 * dy)
 
-        def ks_dudt(u):
-            dx = 0.1
-            lu = (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
-            llu = (lu.x_m + lu.x_p + lu.y_m + lu.y_p - 4 * u) / dx**2
-            ux = (u.x_m - u.x_p) / dx
-            return -llu - lu - ux * u + f
+        def dissipation(r, u, dc):
+            # conservative, negative definite dissipation applied to r*d(ru)/dt
+            laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
+            return laplace(dc * r * r * laplace(u))
 
-        def ks_rk4(u0):
-            dt = 0.01
-            du0 = dt * ks_dudt(u0)
-            du1 = dt * ks_dudt(u0 + 0.5 * du0)
-            du2 = dt * ks_dudt(u0 + 0.5 * du1)
-            du3 = dt * ks_dudt(u0 + du2)
-            return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
+        def rhs(w):
+            r, ru, rv, p = w
+            u, v = ru / r, rv / r
 
-        ksStages = decompose(ks_rk4, stencil_array())
+            mass = diffx(r * ru) + diffy(r * rv)
+            momentum_x = (diffx(ru*ru) + (r*ru) * diffx(u)) / 2.0 \
+                       + (diffy(rv*ru) + (r*rv) * diffy(u)) / 2.0 \
+                       + diffx(p)
+            momentum_y = (diffx(ru*rv) + (r*ru) * diffx(v)) / 2.0 \
+                       + (diffy(rv*rv) + (r*rv) * diffy(v)) / 2.0 \
+                       + diffy(p)
+            energy = gamma * (diffx(p * u) + diffy(p * v)) \
+                   - (gamma - 1) * (u * diffx(p) + v * diffy(p))
 
-        Ni, Nj = 8, 8
-        i, j = self.ij_np(-1, Ni+1, -1, Nj+1)
-        u0 = np.sin(i / Ni * np.pi * 2)
-        f0 = u0 * 0
+            one = ones(r.shape)
+            dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
+            dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
+            dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
 
-        u1, = self.runStages(ksStages, u0, f0)
+            momentum_x += dissipation_x
+            momentum_y += dissipation_y
+            energy += dissipation_p \
+                    - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
 
-    @staticmethod
-    def runStages(stages, u0, f0):
-        import sa2d_theano
-        Ni = u0.shape[0] - 2
-        Nj = u0.shape[1] - 2
-        stage_in = (u0,)
-        for k, stage in enumerate(stages):
-            if stage.sourceValues:
-                stage_func = lambda inp : stage(inp[:-1], inp[-1:])
-                stage_in = stage_in + (f0,)
-                compiled_stage = sa2d_theano.compile(stage_func, stage_in)
-            else:
-                compiled_stage = sa2d_theano.compile(stage, stage_in)
-            stage_out = compiled_stage(*stage_in)
+            rhs_w = zeros(w.shape)
+            rhs_w[0] = 0.5 * mass / r
+            rhs_w[1] = momentum_x / r
+            rhs_w[2] = momentum_y / r
+            rhs_w[-1] = energy
 
-            if k == len(stages) - 1:
-                break
+            rhs_w[1:3] += 0.1 * c0 * obstacle * w[1:3]
+            rhs_w += 0.1 * c0 * (w - w0) * fan
 
-            stage_in = []
-            for a, val in zip(stage.outputs, stage_out):
-                assert val.shape[:2] == (Ni+2, Nj+2) or \
-                       val.shape[:2] == (Ni, Nj)
-                if val.shape[0] == Ni + 2:
-                    stage_in.append(val)
-                else:
-                    val_with_nbr = np.zeros((Ni+2, Nj+2) + val.shape[2:])
-                    val_with_nbr[1:-1,1:-1] = val
-                    val_with_nbr[0,1:-1] = val[-1,:]
-                    val_with_nbr[-1,1:-1] = val[0,:]
-                    val_with_nbr[1:-1,0] = val[:,-1]
-                    val_with_nbr[1:-1,-1] = val[:,0]
-                    stage_in.append(val_with_nbr)
+            return rhs_w
 
-            stage_in = tuple(stage_in)
+        def step(w):
+            dw0 = -dt * rhs(w)
+            dw1 = -dt * rhs(w + 0.5 * dw0)
+            dw2 = -dt * rhs(w + 0.5 * dw1)
+            dw3 = -dt * rhs(w + dw2)
+            return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
-        return stage_out
+        stages = decompose(step, stencil_array((4,)), save_mat='euler.mat')
+        self.assertEqual(len(stages), 8)
+
+        w0 = np.ones([Ni+2, Nj+2, 4])
+        z = np.zeros([Ni+2, Nj+2])
+        i0, j0 = np.zeros([2, Ni+2, Nj+2])
+
+        u1, = runStages(stages, w0, {G_ZERO: z, i.value: i0, j.value: j0})
+        self.assertEqual(u1.shape, (Ni, Nj, 4))
+
 
 # ============================================================================ #
 #                                                                              #
@@ -1114,7 +1208,7 @@ class TestTheano(unittest.TestCase):
 
 if __name__ == '__main__':
     import sa2d_single_thread
-    # TestEuler().notestTunnelRk4()
+    # TestEuler().testTunnelRk4Theano()
     # TestTheano().testKuramotoSivashinskyRk4()
     unittest.main()
 
