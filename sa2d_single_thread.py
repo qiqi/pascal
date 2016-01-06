@@ -251,6 +251,9 @@ class psarray_base(object):
         return self.__add__(a)
 
     def __add__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__add__(self)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
@@ -277,6 +280,9 @@ class psarray_base(object):
         return self.__mul__(a)
 
     def __mul__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__rmul__(self)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
@@ -297,6 +303,9 @@ class psarray_base(object):
         return self.__truediv__(a)
 
     def __truediv__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__rtruediv__(self)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
@@ -317,6 +326,9 @@ class psarray_base(object):
         return self.__rtruediv__(a)
 
     def __rtruediv__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__truediv__(self)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
@@ -334,6 +346,9 @@ class psarray_base(object):
             return self.grid._array(a / data, shape)
 
     def __pow__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__rpow_(self)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
@@ -351,6 +366,9 @@ class psarray_base(object):
             return self.grid._array(data ** a, shape)
 
     def __rpow__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__pow_(self)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
@@ -399,11 +417,17 @@ class psarray_base(object):
 #==============================================================================#
 
 class psarray_numpy(psarray_base):
+    def __init__(self, grid, data, shape):
+        assert isinstance(data, np.ndarray)
+        psarray_base.__init__(self, grid, data, shape)
+
     # -------------------------------------------------------------------- #
     #                               indexing                               #
     # -------------------------------------------------------------------- #
 
     def __setitem__(self, ind, a):
+        if hasattr(a, '__array_priority__'):
+            assert a.__array_priority__ <= self.__array_priority__
         ind = self._data_index_(ind)
         if isinstance(a, psarray_numpy):
             assert a.grid is self.grid
@@ -424,11 +448,17 @@ class psarray_numpy(psarray_base):
 #==============================================================================#
 
 class psarray_theano(psarray_base):
+    def __init__(self, grid, data, shape):
+        assert isinstance(data, T.TensorVariable)
+        psarray_base.__init__(self, grid, data, shape)
+
     # -------------------------------------------------------------------- #
     #                               indexing                               #
     # -------------------------------------------------------------------- #
 
     def __setitem__(self, ind, a):
+        if hasattr(a, '__array_priority__'):
+            assert a.__array_priority__ <= self.__array_priority__
         ind = self._data_index_(ind)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
