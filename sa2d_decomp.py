@@ -4,7 +4,7 @@
 #                                                                              #
 # ============================================================================ #
 
-from __future__ import division
+from __future__ import division, print_function
 
 import builtins
 import copy as copymodule
@@ -19,9 +19,9 @@ import theano.tensor as T
 import scipy.io
 # import scipy.optimize
 # from swiglpk import *
-from pulp import *
+import pulp
 
-GLOBAL_MAX_STAGES = 128 # TODO: make it -1
+GLOBAL_MAX_STAGES = -128
 
 # ============================================================================ #
 
@@ -488,40 +488,38 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
-    '''
-    def _solve_linear_program_scipy(self):
-        c, bounds, A_eq, A_le, b_eq, b_le = self._linear_program
+    # def _solve_linear_program_scipy(self):
+    #     c, bounds, A_eq, A_le, b_eq, b_le = self._linear_program
 
-        opt = {'maxiter': 10000}
-        sol = scipy.optimize.linprog(
-                c, A_le, b_le, A_eq, b_eq, bounds=bounds, options=opt)
+    #     opt = {'maxiter': 10000}
+    #     sol = scipy.optimize.linprog(
+    #             c, A_le, b_le, A_eq, b_eq, bounds=bounds, options=opt)
 
-        assert all([abs(xi - round(xi)) < 1E-12 for xi in sol.x]), \
-               'Linear Program Finished with non-integer results'
+    #     assert all([abs(xi - round(xi)) < 1E-12 for xi in sol.x]), \
+    #            'Linear Program Finished with non-integer results'
 
-        x = np.array(np.around(sol.x), int)
-        objective = int(round(np.dot(c, sol.x)))
-        status = {0 : 'Optimization terminated successfully',
-                  1 : 'Iteration limit reached',
-                  2 : 'Problem appears to be infeasible',
-                  3 : 'Problem appears to be unbounded'}[sol.status]
+    #     x = np.array(np.around(sol.x), int)
+    #     objective = int(round(np.dot(c, sol.x)))
+    #     status = {0 : 'Optimization terminated successfully',
+    #               1 : 'Iteration limit reached',
+    #               2 : 'Problem appears to be infeasible',
+    #               3 : 'Problem appears to be unbounded'}[sol.status]
 
-        self._linear_program_result = self.LPRes(x, objective, status)
-    '''
+    #     self._linear_program_result = self.LPRes(x, objective, status)
 
     # --------------------------------------------------------------------- #
 
-    def _solve_linear_program_glpk(self):
+    def _solve_linear_program_glpk(self, verbose):
         c, bounds, A_eq, A_le, b_eq, b_le = self._linear_program
 
-        lp = LpProblem("Decomposition", LpMinimize)
+        lp = pulp.LpProblem("Decomposition", pulp.LpMinimize)
 
         x = []
         for i, (l, u) in enumerate(bounds):
             if u == GLOBAL_MAX_STAGES:
-                x.append(LpVariable('x'+str(i), l, None))
+                x.append(pulp.LpVariable('x'+str(i), l, None))
             else:
-                x.append(LpVariable('x'+str(i), l, u))
+                x.append(pulp.LpVariable('x'+str(i), l, u))
 
         assert len(x) == len(c)
         lp += builtins.sum(c[i] * x[i] for i in range(len(x)))
@@ -533,16 +531,16 @@ class decompose(object):
             j, = A_eq[i].nonzero()
             lp += builtins.sum(A_eq[i, jj] * x[jj] for jj in j) == b_eq[i]
 
-        s = GLPK()
+        s = pulp.GLPK(mip=0, msg=int(verbose))
         s.actualSolve(lp)
 
-        x = [value(xi) for xi in x]
+        x = [pulp.value(xi) for xi in x]
         assert all([abs(xi - round(xi)) < 1E-12 for xi in x]), \
                'Linear Program Finished with non-integer results'
 
         x = np.array(np.around(x), int)
-        objective = value(lp.objective)
-        status = LpStatus[lp.status]
+        objective = int(round(pulp.value(lp.objective)))
+        status = pulp.LpStatus[lp.status]
 
         self._linear_program_result = self.LPRes(x, objective, status)
 
@@ -561,7 +559,7 @@ class decompose(object):
             sys.stdout.flush()
 
         # self._solve_linear_program_scipy()
-        self._solve_linear_program_glpk()
+        self._solve_linear_program_glpk(verbose>1)
 
         if verbose:
             res = self._linear_program_result
@@ -939,6 +937,7 @@ def runStages(stages, u0, source_dict):
     Nj = u0.shape[1] - 2
     stage_in = (u0,)
     for k, stage in enumerate(stages):
+        print('Compiling and running atomic stage {0}'.format(k))
         if stage.sourceValues:
             ns = len(stage.sourceValues)
             stage_func = lambda inp : stage(inp[:-ns], inp[-ns:])
