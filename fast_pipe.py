@@ -5,6 +5,8 @@ import unittest
 import multiprocessing
 import numpy
 
+# ============================================================================ #
+
 class PipeCore(object):
     '''
     PipeCore object, should be constructed in pairs using Pipe
@@ -25,6 +27,10 @@ class PipeCore(object):
 
     def exchange(self, a_in, a_out, tag):
         '''
+        exchange(self, a_in, a_out, tag)
+        a_in is copied into a_out at the other process
+        tag cannot be nan, and must be the same float number across the pipe.
+
         Structure of self._data:
             self._data[0:self._len]: buffer to contain transmitted data
             self._data[self._len]:   length of transmitted data
@@ -67,7 +73,21 @@ class PipeCore(object):
 
 # ============================================================================ #
 
-def Pipe(length=10000):
+def Pipe(length=2000):
+    '''
+    Return a pair of pipes that can be used to exchange
+    between multiprocessing processes numpy arrays of the same size
+    >>> def f(p):
+    ...    a = numpy.ones(10)
+    ...    b = numpy.empty(10)
+    ...    p.exchange(a, b, 0)
+    ...    return b[0]
+    >>> p0, p1 = Pipe()
+    >>> proc = multiprocessing.Process(target=f, args=(p1,))
+    >>> proc.start()
+    >>> f(p0)
+    1.0
+    '''
     p0 = PipeCore(length)
     p1 = PipeCore(p0)
     return p0, p1
@@ -79,7 +99,7 @@ def Pipe(length=10000):
 
 class TestPipe(unittest.TestCase):
     def _test(self, m, pipe_length):
-        n = 1000
+        n = 200
         p0, p1 = Pipe(pipe_length)
 
         def f(n, p):
@@ -107,24 +127,26 @@ class TestPipe(unittest.TestCase):
 
     def testLatencyBandwidth(self):
         print('\nLatency Bandwidth')
-        n = 1000
-        for m in [10, 100, 1000, 10000, 100000]:
+        for m in [10, 100, 1000]:
             latency = self._test(m, m)
             print(m * 8, 'bytes', latency * 1E6, 'us')
 
     def testUndersizeLatency(self):
         print('\nUndersize')
-        n = 1000
-        for m in [1, 10, 100, 1000, 10000, 100000]:
-            latency = self._test(m, 100000)
+        for m in [1, 10, 100, 1000]:
+            latency = self._test(m, 10000)
             print(m * 8, 'bytes', latency * 1E6, 'us')
 
     def testOversizeLatency(self):
         print('\nOversize')
-        n = 1000
-        for m in [1, 10, 100, 1000, 10000, 100000]:
-            latency = self._test(m, 100)
+        for m in [2000, 4000]:
+            latency = self._test(m, 1000)
             print(m * 8, 'bytes', latency * 1E6, 'us')
 
+
+# ============================================================================ #
+
 if __name__ == '__main__':
+    import doctest
+    doctest.testmod()
     unittest.main()
