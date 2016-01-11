@@ -6,7 +6,10 @@
 
 from __future__ import division, print_function
 
-import builtins
+try:
+    import builtins
+except:
+    import __builtin__ as builtins
 import copy as copymodule
 import sys
 import pickle
@@ -17,8 +20,6 @@ import numpy as np
 import theano
 import theano.tensor as T
 import scipy.io
-# import scipy.optimize
-# from swiglpk import *
 import pulp
 
 GLOBAL_MAX_STAGES = -128
@@ -488,27 +489,6 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
-    # def _solve_linear_program_scipy(self):
-    #     c, bounds, A_eq, A_le, b_eq, b_le = self._linear_program
-
-    #     opt = {'maxiter': 10000}
-    #     sol = scipy.optimize.linprog(
-    #             c, A_le, b_le, A_eq, b_eq, bounds=bounds, options=opt)
-
-    #     assert all([abs(xi - round(xi)) < 1E-12 for xi in sol.x]), \
-    #            'Linear Program Finished with non-integer results'
-
-    #     x = np.array(np.around(sol.x), int)
-    #     objective = int(round(np.dot(c, sol.x)))
-    #     status = {0 : 'Optimization terminated successfully',
-    #               1 : 'Iteration limit reached',
-    #               2 : 'Problem appears to be infeasible',
-    #               3 : 'Problem appears to be unbounded'}[sol.status]
-
-    #     self._linear_program_result = self.LPRes(x, objective, status)
-
-    # --------------------------------------------------------------------- #
-
     def _solve_linear_program_glpk(self, verbose):
         c, bounds, A_eq, A_le, b_eq, b_le = self._linear_program
 
@@ -558,7 +538,6 @@ class decompose(object):
             print('\tsolving {0}x{1} linear program'.format(*lpSize))
             sys.stdout.flush()
 
-        # self._solve_linear_program_scipy()
         self._solve_linear_program_glpk(verbose>1)
 
         if verbose:
@@ -1198,7 +1177,7 @@ class TestEuler(unittest.TestCase):
             dw3 = -dt * rhs(w + dw2)
             return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
-        stages = decompose(step, stencil_array((4,)), save_mat='euler.mat')
+        stages = decompose(step, stencil_array((4,)))
         self.assertEqual(len(stages), 8)
 
         w0 = np.ones([Ni+2, Nj+2, 4])
