@@ -705,7 +705,7 @@ class TestSimpleUpdates(unittest.TestCase):
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
         result = result[0]
-        err = result - 2**u0
+        err = result - update(u0)
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
     def test2(self):
@@ -723,77 +723,74 @@ class TestSimpleUpdates(unittest.TestCase):
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
         result = result[0]
-        err = result - (2 + 2 / u0**3)
+        err = result - update(u0)
         self.assertAlmostEqual(0, G.reduce_sum((err**2).sum()))
 
     def testExpCopySumMean(self):
         def update(u):
-            return exp(u).copy().sum(0).mean()
+            return G.exp(u).copy().sum(0).mean()
 
-        Ni, Nj = 4, 8
-        G = sa2d_single_thread.grid2d(Ni, Nj)
+        G = sys.modules[__name__]
         stages = decompose(update, stencil_array((2,3)))
 
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
 
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
         u0 = G.i + G.ones((2,3)) + np.arange(3)
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
         result = result[0]
-        err = result - G.exp(u0).sum(0).mean()
+        err = result - update(u0)
         self.assertAlmostEqual(0, G.reduce_sum((err**2).sum()))
 
     def testTransposeReshapeRoll(self):
         def update(u):
-            return roll(u.transpose([1,0,2]).reshape([3,-1]).T, 1)
+            return G.roll(u.transpose([1,0,2]).reshape([3,-1]).T, 1)
 
-        Ni, Nj = 4, 8
-        G = sa2d_single_thread.grid2d(Ni, Nj)
+        G = sys.modules[__name__]
         stages = decompose(update, stencil_array((2,3,4)))
 
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
 
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
         u0 = G.i + G.ones((2,3,4)) + np.arange(4)
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
         result = result[0]
-        err = result - G.roll(u0.transpose([1,0,2]).reshape([3,-1]).T, 1)
+        err = result - update(u0)
         self.assertAlmostEqual(0, G.reduce_sum((err**2).sum()))
 
     def testSetGetItem(self):
         def update(u):
-            v = zeros([3,2])
-            v[0] = ones(2)
+            v = G.zeros([3,2])
+            v[0] = G.ones(2)
             v[1,0] = u[0]
             v[2] = u.x_p + u.x_m - 2 * u
             return v
 
-        Ni, Nj = 4, 8
-        G = sa2d_single_thread.grid2d(Ni, Nj)
+        G = sys.modules[__name__]
         stages = decompose(update, [0,0])
 
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
 
         self.assertEqual(stage0.sourceValues, (G_ZERO,))
+
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        u0 = G.i + np.arange(2) * 8
         source_objects = (G.zeros(()),)
 
-        u0 = G.i + np.arange(2) * 8
         result = stage0((u0,), source_objects)
         self.assertEqual(len(result), 1)
         result = result[0]
 
-        err_0 = result[0] - 1
-        err_10 = result[1,0] - u0[0]
-        err_11 = result[1,1]
-        err_2 = result[2] - (u0.x_p + u0.x_m - 2 * u0)
-
-        self.assertAlmostEqual(0, G.reduce_sum((err_0**2).sum()))
-        self.assertAlmostEqual(0, G.reduce_sum((err_10**2).sum()))
-        self.assertAlmostEqual(0, G.reduce_sum((err_11**2).sum()))
-        self.assertAlmostEqual(0, G.reduce_sum((err_2**2).sum()))
+        err = result - update(u0)
+        self.assertAlmostEqual(0, G.reduce_sum((err**2).sum()))
 
 
 # ============================================================================ #
@@ -804,13 +801,14 @@ class TestSingleStage(unittest.TestCase):
             dx, dt = 0.1, 0.01
             return u + dt * (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
 
-        Ni, Nj = 16, 8
-        G = sa2d_single_thread.grid2d(Ni, Nj)
+        G = sys.modules[__name__]
         heatStages = decompose(heat, stencil_array())
 
         self.assertEqual(len(heatStages), 1)
         stage0 = heatStages[0]
 
+        Ni, Nj = 16, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
         u0 = G.ones(())
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
@@ -822,52 +820,54 @@ class TestSingleStage(unittest.TestCase):
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
         result = result[0]
-        err = result - u0 * (1 - 2 * (1 - np.cos(np.pi * 2 / Ni)))
+        err = result - heat(u0)
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
         u0 = G.sin(G.j / Nj * np.pi * 4)
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
         result = result[0]
-        err = result - u0 * (1 - 2 * (1 - np.cos(np.pi * 4 / Nj)))
+        err = result - heat(u0)
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
     def testODE1(self):
         def ode(u):
             dt = 0.1
-            return u - dt * sin(u)
+            return u - dt * G.sin(u)
 
-        Ni, Nj = 4, 8
-        G = sa2d_single_thread.grid2d(Ni, Nj)
+        G = sys.modules[__name__]
         odeStages = decompose(ode, stencil_array())
 
         self.assertEqual(len(odeStages), 1)
         stage0 = odeStages[0]
 
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
         u0 = G.i
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
         result = result[0]
-        err = result - (G.i - 0.1 * G.sin(G.i))
+        err = result - ode(u0)
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
     def testODE2(self):
         def ode(u):
             dt = 0.1
-            return u - dt * cos(u) / len(u)
+            return u - dt * G.cos(u) / len(u)
 
-        Ni, Nj = 4, 8
-        G = sa2d_single_thread.grid2d(Ni, Nj)
+        G = sys.modules[__name__]
         odeStages = decompose(ode, stencil_array())
 
         self.assertEqual(len(odeStages), 1)
         stage0 = odeStages[0]
 
+        Ni, Nj = 4, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
         u0 = G.i
         result = stage0((u0,))
         self.assertEqual(len(result), 1)
         result = result[0]
-        err = result - (G.i - 0.1 * G.cos(G.i))
+        err = result - ode(u0)
         self.assertAlmostEqual(0, G.reduce_sum(err**2))
 
 
@@ -880,20 +880,20 @@ class TestMultiStage(unittest.TestCase):
             uh = u + 0.5 * dt * (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
             return u + dt * (uh.x_m + uh.x_p + uh.y_m + uh.y_p - 4 * uh) / dx**2
 
-        Ni, Nj = 16, 8
-        G = sa2d_single_thread.grid2d(Ni, Nj)
+        G = sys.modules[__name__]
         heatStages = decompose(heatMidpoint, stencil_array())
 
         self.assertEqual(len(heatStages), 2)
         stage0, stage1 = heatStages
 
+        Ni, Nj = 16, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
         u0 = G.sin(G.i / Ni * np.pi * 2)
         result = stage1(stage0((u0,)))
         self.assertEqual(len(result), 1)
         result = result[0]
 
-        dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
-        err = result - u0 * (1 - dudt + dudt**2 / 2)
+        err = result - heatMidpoint(u0)
         self.assertAlmostEqual(G.reduce_sum(err**2), 0)
 
     def testKuramotoSivashinskyRk4(self):
@@ -912,17 +912,20 @@ class TestMultiStage(unittest.TestCase):
             du3 = dt * ks_dudt(u0 + du2)
             return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
 
-        Ni, Nj = 16, 8
-        G = sa2d_single_thread.grid2d(Ni, Nj)
         ksStages = decompose(ks_rk4, stencil_array())
 
         self.assertEqual(len(ksStages), 8)
 
-        inp = (G.sin(G.i / Ni * np.pi * 2),)
+        Ni, Nj = 16, 8
+        G = sa2d_single_thread.grid2d(Ni, Nj)
+        u0 = G.sin(G.i / Ni * np.pi * 2)
+        inp = (u0,)
         for i in range(8):
             inp = ksStages[i](inp)
 
-        self.assertEqual(len(inp), 1)
+        result, = inp
+        err = result - ks_rk4(u0)
+        self.assertAlmostEqual(G.reduce_sum(err**2), 0)
 
 
 # ============================================================================ #
@@ -1110,7 +1113,8 @@ class TestEuler(unittest.TestCase):
         stages = decompose(step, stencil_array((4,)), save_mat='euler.mat')
         self.assertEqual(len(stages), 8)
 
-        inp = (G.sin(G.i / Ni * np.pi * 2) + np.zeros(4),)
+        w0 = G.sin(G.i / Ni * np.pi * 2) + np.zeros(4)
+        inp = (w0,)
         z = G.zeros(())
         for stage in stages:
             if len(stage.sourceValues):
@@ -1118,10 +1122,11 @@ class TestEuler(unittest.TestCase):
             else:
                 inp = stage(inp)
 
-        self.assertEqual(len(inp), 1)
-        self.assertEqual(inp[0].shape, (4,))
+        result, = inp
+        err = result - step(w0)
+        self.assertAlmostEqual(G.reduce_sum(err**2), 0)
 
-    def testTunnelRk4Theano(self):
+    def notestTunnelRk4Theano(self):
 
         DISS_COEFF = 0.0025
         gamma, R = 1.4, 287.
@@ -1217,6 +1222,7 @@ if __name__ == '__main__':
     import sa2d_single_thread
     # TestEuler().testTunnelRk4Theano()
     # TestTheano().testKuramotoSivashinskyRk4()
+    # TestSimpleUpdates().testSetGetItem()
     unittest.main()
 
 ################################################################################

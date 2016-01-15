@@ -10,10 +10,29 @@ class SA2d_Single_Node_Worker_Variable(object):
 
 
 class SA2d_Single_Node_Worker(object):
+    '''
+    This class runs in worker processes
+    '''
     def __init__(self, i, j, neighbor_pipes):
         self.i, self.j = i, j
         self.neighbor_pipes = neighbor_pipes
         self.variables = {}
+
+    def func(self, func, args, kwargs, result_key):
+        args = self._combine_args(args)
+        kwargs = self._combine_kwargs(kwargs)
+        result = func(*args, **kwargs)
+        return self._update_result(result, result_key)
+
+    def method(self, variable_key, method_name, args, kwargs, result_key):
+        variable = self.variables[variable_key]
+        method = getattr(variable, method_name)
+        args = self._combine_args(args)
+        kwargs = self._combine_kwargs(kwargs)
+        result = method(*args, **kwargs)
+        return self._update_result(result, result_key)
+
+    # ------------------------------------------------------------------- #
 
     def _combine_args(self, args):
         combined_args = []
@@ -57,20 +76,6 @@ class SA2d_Single_Node_Worker(object):
 
         full_result[1:-1,1:-1] = result
         return full_result
-
-    def func(self, func, args, kwargs, result_key):
-        args = self._combine_args(args)
-        kwargs = self._combine_kwargs(kwargs)
-        result = func(*args, **kwargs)
-        return self._update_result(result, result_key)
-
-    def method(self, variable_key, method_name, args, kwargs, result_key):
-        variable = self.variables[variable_key]
-        method = getattr(variable, method_name)
-        args = self._combine_args(args)
-        kwargs = self._combine_kwargs(kwargs)
-        result = method(*args, **kwargs)
-        return self._update_result(result, result_key)
 
 
 def process_target(iRange, jRange, command_pipe, neighbor_pipes):
