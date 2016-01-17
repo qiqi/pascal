@@ -668,7 +668,7 @@ class _Misc(_OpTest):
 
     def testRandom(self):
         x = self.G.random((10,2))
-        self.assertEqual(x.size, (10,2))
+        self.assertEqual(x.shape, (10,2))
 
 class _Adjoint(_OpTest):
     def testSimple(self):
