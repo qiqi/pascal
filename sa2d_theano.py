@@ -348,7 +348,7 @@ def compile(func, inputs=(), args=(), argv={}):
 #                                 unit tests                                   #
 # ============================================================================ #
 
-class TestOperators(unittest.TestCase):
+class _TestOperators(unittest.TestCase):
     def testLaplacian(self):
         def laplacian(a):
             z = zeros()
@@ -411,7 +411,7 @@ class TestOperators(unittest.TestCase):
 
 # ---------------------------------------------------------------------------- #
 
-class TestIJ(unittest.TestCase):
+class _TestIJ(unittest.TestCase):
     @staticmethod
     def ij_np(i0, i1, j0, j1):
         return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
@@ -441,7 +441,7 @@ class TestIJ(unittest.TestCase):
 
 # ---------------------------------------------------------------------------- #
 
-class TestTransforms(unittest.TestCase):
+class _TestTransforms(unittest.TestCase):
     def testSize(self):
         def size_a(a):
             return ones(()) * a.size
@@ -528,7 +528,7 @@ class TestTransforms(unittest.TestCase):
 
 # ---------------------------------------------------------------------------- #
 
-class TestIndexing(unittest.TestCase):
+class _TestIndexing(unittest.TestCase):
     def testGetItem1(self):
         def pick12(a):
             return a[1,2]
@@ -620,7 +620,7 @@ class TestIndexing(unittest.TestCase):
 
 # ---------------------------------------------------------------------------- #
 
-class TestSumMean(unittest.TestCase):
+class _TestSumMean(unittest.TestCase):
     def testSum1(self):
         def sum1(a):
             return a.sum()

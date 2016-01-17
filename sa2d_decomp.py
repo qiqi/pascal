@@ -123,6 +123,9 @@ class stencil_array_value(object):
 # ============================================================================ #
 
 class stencil_array(object):
+
+    __context__ = sys.modules[__name__]
+
     def __init__(self, init=()):
         if _is_like_sa_value(init):
             self.value = init
@@ -662,13 +665,15 @@ class Stage(object):
 #                                 unit tests                                   #
 # ============================================================================ #
 
-class TestMisc(unittest.TestCase):
+class _TestMisc(unittest.TestCase):
     def testPrint(self):
         a = stencil_array()
         b = a * 2
         print(a, b)
 
-class TestSimpleUpdates(unittest.TestCase):
+# ============================================================================ #
+
+class _TestSimpleUpdates(unittest.TestCase):
     def test1(self):
         def update(u):
             return u.ndim + 2**u
@@ -774,7 +779,7 @@ class TestSimpleUpdates(unittest.TestCase):
 
 # ============================================================================ #
 
-class TestSingleStage(unittest.TestCase):
+class _TestSingleStage(unittest.TestCase):
     def testHeat(self):
         def heat(u):
             dx, dt = 0.1, 0.01
@@ -852,7 +857,7 @@ class TestSingleStage(unittest.TestCase):
 
 # ============================================================================ #
 
-class TestMultiStage(unittest.TestCase):
+class _TestMultiStage(unittest.TestCase):
     def testHeat(self):
         def heatMidpoint(u):
             dx, dt = 0.1, 0.01
@@ -954,7 +959,7 @@ def runStages(stages, u0, source_dict):
 
 # ---------------------------------------------------------------------------- #
 
-class TestTheano(unittest.TestCase):
+class _TestTheano(unittest.TestCase):
     def testHeat(self):
         f = stencil_array()
 
@@ -1011,7 +1016,7 @@ class TestTheano(unittest.TestCase):
 
 # ============================================================================ #
 
-class TestEuler(unittest.TestCase):
+class _TestEuler(unittest.TestCase):
     def testTunnelRk4(self):
 
         DISS_COEFF = 0.0025
@@ -1061,7 +1066,7 @@ class TestEuler(unittest.TestCase):
             energy = gamma * (diffx(p * u) + diffy(p * v)) \
                    - (gamma - 1) * (u * diffx(p) + v * diffy(p))
 
-            one = ones(r.shape)
+            one = _infer_context(w).ones(r.shape)
             dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
             dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
             dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
@@ -1071,7 +1076,7 @@ class TestEuler(unittest.TestCase):
             energy += dissipation_p \
                     - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
 
-            rhs_w = zeros(w.shape)
+            rhs_w = _infer_context(w).zeros(w.shape)
             rhs_w[0] = 0.5 * mass / r
             rhs_w[1] = momentum_x / r
             rhs_w[2] = momentum_y / r
@@ -1092,7 +1097,7 @@ class TestEuler(unittest.TestCase):
         stages = decompose(step, stencil_array((4,)), save_mat='euler.mat')
         self.assertEqual(len(stages), 8)
 
-        w0 = G.sin(G.i / Ni * np.pi * 2) + np.zeros(4)
+        w0 = G.zeros(4) + np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
         inp = (w0,)
         z = G.zeros(())
         for stage in stages:
@@ -1103,9 +1108,9 @@ class TestEuler(unittest.TestCase):
 
         result, = inp
         err = result - step(w0)
-        self.assertAlmostEqual(G.reduce_sum(err**2), 0)
+        self.assertAlmostEqual(G.reduce_sum(err**2).sum(), 0)
 
-    def notestTunnelRk4Theano(self):
+    def testTunnelRk4Theano(self):
 
         DISS_COEFF = 0.0025
         gamma, R = 1.4, 287.
@@ -1164,7 +1169,7 @@ class TestEuler(unittest.TestCase):
             energy += dissipation_p \
                     - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
 
-            rhs_w = zeros(w.shape)
+            rhs_w = _infer_context(w).zeros(w.shape)
             rhs_w[0] = 0.5 * mass / r
             rhs_w[1] = momentum_x / r
             rhs_w[2] = momentum_y / r
@@ -1185,7 +1190,8 @@ class TestEuler(unittest.TestCase):
         stages = decompose(step, stencil_array((4,)))
         self.assertEqual(len(stages), 8)
 
-        w0 = np.ones([Ni+2, Nj+2, 4])
+        w0 = np.zeros([Ni+2, Nj+2, 4]) + \
+             np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
         z = np.zeros([Ni+2, Nj+2])
         i0, j0 = np.zeros([2, Ni+2, Nj+2])
 
@@ -1199,10 +1205,8 @@ class TestEuler(unittest.TestCase):
 
 if __name__ == '__main__':
     import sa2d_single_thread
-    # TestEuler().testTunnelRk4Theano()
-    # TestTheano().testKuramotoSivashinskyRk4()
-    # TestSimpleUpdates().testSetGetItem()
     unittest.main()
+    # _TestEuler().testTunnelRk4()
 
 ################################################################################
 ################################################################################
