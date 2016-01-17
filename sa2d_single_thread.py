@@ -323,9 +323,9 @@ class psarray_base(object):
             return self.grid._array(data / a, shape)
 
     def __rtruediv__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
-            return a.__truediv__(self)
+        # if hasattr(a, '__array_priority__') and \
+        #         a.__array_priority__ > self.__array_priority__:
+        #     return a.__truediv__(self)
         # if isinstance(a, psarray_base):
         #     assert a.grid is self.grid
         #     ndim = max(a.ndim, self.ndim)
@@ -334,18 +334,18 @@ class psarray_base(object):
         #          / self.grid._data_ndim(self, ndim)
         #     shape = (np.ones(a.shape) / np.zeros(self.shape)).shape
         #     return self.grid._array(data, shape)
+        # else:
+        if hasattr(a, 'ndim'):
+            data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
         else:
-            if hasattr(a, 'ndim'):
-                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
-            else:
-                data = self._data
-            shape = (a / np.zeros(self.shape)).shape
-            return self.grid._array(a / data, shape)
+            data = self._data
+        shape = (a / np.zeros(self.shape)).shape
+        return self.grid._array(a / data, shape)
 
     def __pow__(self, a):
         if hasattr(a, '__array_priority__') and \
                 a.__array_priority__ > self.__array_priority__:
-            return a.__rpow_(self)
+            return a.__rpow__(self)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
@@ -363,9 +363,9 @@ class psarray_base(object):
             return self.grid._array(data ** a, shape)
 
     def __rpow__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
-            return a.__pow_(self)
+        # if hasattr(a, '__array_priority__') and \
+        #         a.__array_priority__ > self.__array_priority__:
+        #     return a.__pow__(self)
         # if isinstance(a, psarray_base):
         #     assert a.grid is self.grid
         #     ndim = max(a.ndim, self.ndim)
@@ -374,13 +374,13 @@ class psarray_base(object):
         #          ** self.grid._data_ndim(self, ndim)
         #     shape = (np.ones(a.shape) ** np.ones(self.shape)).shape
         #     return self.grid._array(data, shape)
+        # else:
+        if hasattr(a, 'ndim'):
+            data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
         else:
-            if hasattr(a, 'ndim'):
-                data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
-            else:
-                data = self._data
-            shape = (a ** np.ones(self.shape)).shape
-            return self.grid._array(a ** data, shape)
+            data = self._data
+        shape = (a ** np.ones(self.shape)).shape
+        return self.grid._array(a ** data, shape)
 
     def sum(self, axis=None):
         if axis is None:
@@ -669,6 +669,28 @@ class _Misc(_OpTest):
     def testRandom(self):
         x = self.G.random((10,2))
         self.assertEqual(x.shape, (10,2))
+
+    def testPowerClass(self):
+        class PowerClass(object):
+            __array_priority__ = 10000000
+            __add__ = lambda self, a : 1
+            __rmul__ = lambda self, a : 2
+            __truediv__ = lambda self, a : 3
+            __rtruediv__ = lambda self, a : 4
+            __pow__ = lambda self, a : 5
+            __rpow__ = lambda self, a : 6
+
+        a = PowerClass()
+        b = self.G.ones(3)
+        self.assertEqual(a + b, 1)
+        self.assertEqual(b + a, 1)
+        self.assertEqual(a - b, 1)
+        self.assertEqual(a * b, 2)
+        self.assertEqual(b * a, 2)
+        self.assertEqual(a / b, 3)
+        self.assertEqual(b / a, 4)
+        self.assertEqual(a ** b, 5)
+        self.assertEqual(b ** a, 6)
 
 class _Adjoint(_OpTest):
     def testSimple(self):
