@@ -1,6 +1,6 @@
 ################################################################################
 #                                                                              #
-#            psarray.py copyright 2015 Qiqi Wang (qiqi.wang@gmail.com)         #
+#     sa2d_single_thread.py copyright 2015 Qiqi Wang (qiqi.wang@gmail.com)     #
 #                                                                              #
 ################################################################################
 
