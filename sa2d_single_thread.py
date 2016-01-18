@@ -20,7 +20,7 @@ _VERBOSE_ = False
 
 class grid2d(object):
     '''
-    Provide "global" utility function for array2d family of classes
+    Provide "global" utility function for stencil_array family of classes
     '''
     def __init__(self, nx, ny):
         assert nx > 0

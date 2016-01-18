@@ -36,6 +36,14 @@ def is_worker_variable(variable):
     return hasattr(variable, '__is_worker_variable__')
 
 #==============================================================================#
+#                          predefined worker variables                         #
+#==============================================================================#
+
+ZERO = WorkerVariable('_z')
+I = WorkerVariable('i')
+J = WorkerVariable('j')
+
+#==============================================================================#
 #                                                                              #
 #==============================================================================#
 
@@ -297,6 +305,35 @@ class TestCustomFunction(unittest.TestCase):
         self.assertAlmostEqual(j_triple_max[2], 12)
         self.assertAlmostEqual(j_triple_max[3], 24)
 
+
+#==============================================================================#
+
+class TestPassingParamters(unittest.TestCase):
+    def testPassingNumpyArray(self):
+        comm = MPI_Commander(4, 8, 1, 2)
+        z34 = WorkerVariable()
+        def make_worker_variable(z, x):
+            return x + z.reshape(z.shape + (1,) * x.ndim)
+        comm.set_custom_func('make_worker_variable', make_worker_variable)
+        comm.func('make_worker_variable', (ZERO, np.zeros([3,4])),
+                result_var=z34)
+        comm.set_custom_func('get_shape', lambda x : x.shape)
+        shape0, shape1 = comm.func('get_shape', (z34,))
+        self.assertEqual(shape0, shape1)
+        self.assertEqual(shape0, (6, 6, 3, 4))
+
+
+#==============================================================================#
+
+class TestFunctions(unittest.TestCase):
+    def testNumpyFunsions(self):
+        comm = MPI_Commander(4, 8, 1, 2)
+        sin_j = WorkerVariable()
+        comm.func(np.sin, (J,), result_var=sin_j)
+        comm.func(np.copy, (sin_j,), result_var=sin_j)
+        sin_j_max = comm.func(np.max, (sin_j,))
+        self.assertAlmostEqual(sin_j_max[0], 0.90929742682568171)
+        self.assertAlmostEqual(sin_j_max[1], 0.98935824662338179)
 
 #==============================================================================#
 #                                                                              #
