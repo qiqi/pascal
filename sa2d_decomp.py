@@ -156,7 +156,7 @@ class stencil_array(object):
     # --------------------------- operations ------------------------------ #
 
     # asks ndarray to use the __rops__ defined in this class
-    __array_priority__ = 4000
+    __array_priority__ = 3000
 
     def __add__(self, a):
         a = a.value if _is_like_sa(a) else a

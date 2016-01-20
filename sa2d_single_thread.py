@@ -384,19 +384,25 @@ class psarray_base(object):
 
     def sum(self, axis=None):
         if axis is None:
-            data = self._data.reshape((self.grid.nx, self.grid.ny, -1)).sum(2)
-            return self.grid._array(data, ())
+            axis = tuple(range(self.ndim))
+        elif isinstance(axis, int):
+            axis = (axis,)
         else:
-            shape = np.ones(self.shape).sum(axis).shape
-            return self.grid._array(self._data.sum(axis + 2), shape)
+            axis = tuple(axis)
+        shape = np.ones(self.shape).sum(axis).shape
+        axis = tuple(a + 2 for a in axis)
+        return self.grid._array(self._data.sum(axis), shape)
 
     def mean(self, axis=None):
         if axis is None:
-            data = self._data.reshape((self.grid.nx, self.grid.ny, -1)).mean(2)
-            return self.grid._array(data, ())
+            axis = tuple(range(self.ndim))
+        elif isinstance(axis, int):
+            axis = (axis,)
         else:
-            shape = np.ones(self.shape).mean(axis).shape
-            return self.grid._array(self._data.mean(axis + 2), shape)
+            axis = tuple(axis)
+        shape = np.ones(self.shape).sum(axis).shape
+        axis = tuple(a + 2 for a in axis)
+        return self.grid._array(self._data.mean(axis), shape)
 
     def transpose(self, axis=None):
         return self.grid.transpose(self, axis)
