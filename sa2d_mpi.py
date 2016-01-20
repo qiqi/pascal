@@ -105,11 +105,13 @@ class grid2d(object):
         commander.set_custom_func('make_worker_variable',
                 lambda ZERO, x : x + ZERO.reshape(z.shape + (1,) * x.ndim))
         commander.set_custom_func('reduce_sum',
-                lambda x, x[1:-1,1:-1].sum(axis=(0,1)))
+                lambda x : x[1:-1,1:-1].sum(axis=(0,1)))
         commander.set_custom_func('reduce_mean',
-                lambda x, x[1:-1,1:-1].mean(axis=(0,1)))
+                lambda x : x[1:-1,1:-1].mean(axis=(0,1)))
         commander.set_custom_func('reshape',
-                lambda x, shape, x.reshape(x.shape[:2] + shape))
+                lambda x, shape : x.reshape(x.shape[:2] + shape))
+        commander.set_custom_func('expand_ndim_then_op',
+                lambda x, ndim, op: #TODO
 
     @property
     def nx(self):
