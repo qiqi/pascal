@@ -170,11 +170,15 @@ def mpi_worker_main():
         next_task_list = command_comm.bcast(None, 0)
         if next_task_list == 'finalize':
             break
-        method_name, args = next_task_list
+        elif next_task_list == 'scatter':
+            next_task_list = command_comm.scatter(None)
+        method_name, args, return_result = next_task_list
         assert hasattr(worker, method_name), \
                'Worker does not have method named: {1}'.format(method_name)
         worker_method = getattr(worker, method_name)
-        command_comm.gather(worker_method(*args), 0)
+        return_val = worker_method(*args)
+        if return_result is not None:
+            command_comm.gather(return_val, 0)
 
 
 #==============================================================================#
@@ -207,11 +211,11 @@ class MPI_Commander(object):
 
         assert self.comm.size == 1, "MPI_Commander is designed to " \
                                     "launch from a single processor"
-        iRanges = self._i_ranges(ni, niProc)
-        jRanges = self._i_ranges(nj, njProc)
+        self.iRanges = self._i_ranges(ni, niProc)
+        self.jRanges = self._i_ranges(nj, njProc)
 
-        for i, iRange in enumerate(iRanges):
-            for j, jRange in enumerate(jRanges):
+        for i, iRange in enumerate(self.iRanges):
+            for j, jRange in enumerate(self.jRanges):
                 rank = i * njProc + j
                 rank_x_m = (i + niProc - 1) % niProc * njProc + j
                 rank_x_p = (i + 1) % niProc * njProc + j
@@ -233,23 +237,37 @@ class MPI_Commander(object):
 
     def set_custom_func(self, name, func):
         args = (name, dill.dumps(func))
-        self._broadcast_to_workers(('set_custom_func', args))
+        self._broadcast_to_workers(('set_custom_func', args, False))
         return self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
 
-    def func(self, func, args=(), kwargs={}, result_var=None):
+    def func(self, func, args=(), kwargs={},
+             result_var=None, return_result=True):
         args = (func, args, kwargs, result_var)
-        self._broadcast_to_workers(('func', args))
-        return self._gather_from_workers()
+        self._broadcast_to_workers(('func', args, return_result))
+        if return_result:
+            return self._gather_from_workers()
+
+    # -------------------------------------------------------------------- #
+
+    def func_nonuniform_args(self, func, nonuniform_args=(), kwargs={},
+             result_var=None, return_result=True):
+        assert len(nonuniform_args) == len(self.iRanges) * len(self.jRanges)
+        data = tuple(('func', (func, args, kwargs, result_var), return_result) \
+                     for args in nonuniform_args)
+        self._scatter_to_workers(data)
+        if return_result:
+            return self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
 
     def method(self, variable_key, method_name, args=(), kwargs={},
-               result_var=None):
+               result_var=None, return_result=True):
         args = (variable_key, method_name, args, kwargs, result_var)
-        self._broadcast_to_workers(('method', args))
-        return self._gather_from_workers()
+        self._broadcast_to_workers(('method', args, return_result))
+        if return_result:
+            return self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
 
@@ -262,6 +280,10 @@ class MPI_Commander(object):
 
     def _broadcast_to_workers(self, message):
         self.comm.bcast(message, MPI.ROOT)
+
+    def _scatter_to_workers(self, messages):
+        self.comm.bcast('scatter', MPI.ROOT)
+        self.comm.scatter(messages, root=MPI.ROOT)
 
     # -------------------------------------------------------------------- #
 
@@ -321,6 +343,25 @@ class TestPassingParamters(unittest.TestCase):
         shape0, shape1 = comm.func('get_shape', (z34,))
         self.assertEqual(shape0, shape1)
         self.assertEqual(shape0, (6, 6, 3, 4))
+
+    def testPassingNonUniformNumpyArray(self):
+        comm = MPI_Commander(4, 8, 1, 2)
+        z34 = WorkerVariable()
+        def make_worker_variable(z, x):
+            return x + z.reshape(z.shape + (1,) * x.ndim)
+        comm.set_custom_func('make_worker_variable', make_worker_variable)
+        args = ((ZERO, np.zeros([3,4])), (ZERO, np.ones([3,4])))
+        comm.func_nonuniform_args('make_worker_variable', args, result_var=z34)
+        comm.set_custom_func('get_shape', lambda x : x.shape)
+        shape0, shape1 = comm.func('get_shape', (z34,))
+        self.assertEqual(shape0, shape1)
+        self.assertEqual(shape0, (6, 6, 3, 4))
+        max0, max1 = comm.func(np.max, (z34,))
+        min0, min1 = comm.func(np.min, (z34,))
+        self.assertEqual(max0, 0)
+        self.assertEqual(min0, 0)
+        self.assertEqual(max1, 1)
+        self.assertEqual(min1, 1)
 
 
 #==============================================================================#

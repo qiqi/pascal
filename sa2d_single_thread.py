@@ -323,18 +323,6 @@ class psarray_base(object):
             return self.grid._array(data / a, shape)
 
     def __rtruediv__(self, a):
-        # if hasattr(a, '__array_priority__') and \
-        #         a.__array_priority__ > self.__array_priority__:
-        #     return a.__truediv__(self)
-        # if isinstance(a, psarray_base):
-        #     assert a.grid is self.grid
-        #     ndim = max(a.ndim, self.ndim)
-
-        #     data = self.grid._data_ndim(a, ndim) \
-        #          / self.grid._data_ndim(self, ndim)
-        #     shape = (np.ones(a.shape) / np.zeros(self.shape)).shape
-        #     return self.grid._array(data, shape)
-        # else:
         if hasattr(a, 'ndim'):
             data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
         else:
@@ -363,18 +351,6 @@ class psarray_base(object):
             return self.grid._array(data ** a, shape)
 
     def __rpow__(self, a):
-        # if hasattr(a, '__array_priority__') and \
-        #         a.__array_priority__ > self.__array_priority__:
-        #     return a.__pow__(self)
-        # if isinstance(a, psarray_base):
-        #     assert a.grid is self.grid
-        #     ndim = max(a.ndim, self.ndim)
-
-        #     data = self.grid._data_ndim(a, ndim) \
-        #          ** self.grid._data_ndim(self, ndim)
-        #     shape = (np.ones(a.shape) ** np.ones(self.shape)).shape
-        #     return self.grid._array(data, shape)
-        # else:
         if hasattr(a, 'ndim'):
             data = self.grid._data_ndim(self, max(a.ndim, self.ndim))
         else:

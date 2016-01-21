@@ -104,14 +104,8 @@ class grid2d(object):
         commander = self._commander
         commander.set_custom_func('make_worker_variable',
                 lambda ZERO, x : x + ZERO.reshape(z.shape + (1,) * x.ndim))
-        commander.set_custom_func('reduce_sum',
-                lambda x : x[1:-1,1:-1].sum(axis=(0,1)))
-        commander.set_custom_func('reduce_mean',
-                lambda x : x[1:-1,1:-1].mean(axis=(0,1)))
         commander.set_custom_func('reshape',
                 lambda x, shape : x.reshape(x.shape[:2] + shape))
-        commander.set_custom_func('expand_ndim_then_op',
-                lambda x, ndim, op: #TODO
 
     @property
     def nx(self):
@@ -127,7 +121,7 @@ class grid2d(object):
         '''
         return self._ny
 
-    def _func(self, func, args=(), kwargs={}):
+    def _func(self, func, args=(), kwargs={}, is_nonuniform_args=False):
         '''
         Call a function defined in mpi_worker_commander.MPI_Commander
         with a fresh WorkerVariable, and return this WorkerVariable.
@@ -151,7 +145,12 @@ class grid2d(object):
             the result of the function call.
         '''
         result = commander.WorkerVariable()
-        self._commander.func(func, args, kwargs, result_var=result)
+        if is_nonuniform_args:
+            self._commander.func_nonuniform_args(func, args, kwargs,
+                    result_var=result, return_result=False)
+        else:
+            self._commander.func(func, args, kwargs, result_var=result,
+                                 return_result=False)
         return result
 
     # -------------------------------------------------------------------- #
@@ -227,7 +226,7 @@ class grid2d(object):
         '''
         Calculate the logorithm of all elements in the input array.
         '''
-        assert x.grid is self
+        assert _is_like_sa(x) and x.grid is self
         res = self._func(np.log, (x._var,))
         return self._array(res, x.shape)
 
@@ -235,7 +234,7 @@ class grid2d(object):
         '''
         Calculate the exponential of all elements in the input array.
         '''
-        assert x.grid is self
+        assert _is_like_sa(x) and x.grid is self
         res = self._func(np.exp, (x._var,))
         return self._array(res, x.shape)
 
@@ -243,7 +242,7 @@ class grid2d(object):
         '''
         Sine element-wise.
         '''
-        assert x.grid is self
+        assert _is_like_sa(x) and x.grid is self
         res = self._func(np.sin, (x._var,))
         return self._array(res, x.shape)
 
@@ -251,7 +250,7 @@ class grid2d(object):
         '''
         Cosine element-wise.
         '''
-        assert x.grid is self
+        assert _is_like_sa(x) and x.grid is self
         res = self._func(np.cos, (x._var,))
         return self._array(res, x.shape)
 
@@ -278,7 +277,7 @@ class grid2d(object):
             axis removed.  If `a` is a 0-d array, or if `axis` is None, the
             result is a scalar on each grid point is returned.
         '''
-        assert x.grid is self
+        assert _is_like_sa(x) and x.grid is self
         if axis is None:
             axis = tuple(range(self.ndim))
         elif isinstance(axis, int):
@@ -313,8 +312,7 @@ class grid2d(object):
             axis removed.  If `a` is a 0-d array, or if `axis` is None, the
             result is a scalar on each grid point is returned.
         '''
-        assert x.grid is self
-        assert x.grid is self
+        assert _is_like_sa(x) and x.grid is self
         if axis is None:
             axis = tuple(range(self.ndim))
         elif isinstance(axis, int):
@@ -330,7 +328,7 @@ class grid2d(object):
         '''
         Return an array copy of the given object.
         '''
-        assert x.grid is self
+        assert _is_like_sa(x) and x.grid is self
         res = self._func(np.copy, (x._var,))
         return self._array(res, x.shape)
 
@@ -349,7 +347,7 @@ class grid2d(object):
         -------
         p : `a` with its axes permuted.
         '''
-        assert x.grid is self
+        assert _is_like_sa(x) and x.grid is self
         if axes is None:
             axes = [0, 1] + list(reversed(range(2, 2 + self.ndim)))
         else:
@@ -388,6 +386,7 @@ class grid2d(object):
             self._commander.set_custom_func('roll', func_roll)
             self._has_set_custom_func_roll_ = True
 
+        assert _is_like_sa(a) and a.grid is self
         res = self.func('roll', (a._var, shift, axis))
         return self._array(res, a.shape)
 
@@ -408,7 +407,7 @@ class grid2d(object):
         -------
         reshaped_array
         '''
-        assert a.grid is self
+        assert _is_like_sa(a) and a.grid == self
         if isinstance(newshape, int)
             newshape = (newshape,)
         else:
@@ -434,9 +433,10 @@ class grid2d(object):
         sum_a : a numpy array that has the same shape as a,
             one that does not live on this grid.
         '''
-        assert a.grid == self
-        sum_a = self._commander.func('reduce_sum', (a._var,))
-        sum_a = np.sum(sum_a)
+        assert _is_like_sa(a) and a.grid == self
+        a_interior = a._method('__getitem__', ((slice(1,-1), slice(1,-1)),))
+        sum_a = self._commander.func(np.sum, (a_interior,), {'axis' : (0,1)})
+        sum_a = np.sum(sum_a, axis=0)
         assert sum_a.shape == a.shape
         return sum_a
 
@@ -453,15 +453,49 @@ class grid2d(object):
         mean_a : a numpy array that has the same shape as a,
             one that does not live on this grid.
         '''
-        assert a.grid == self
-        mean_a = self._commander.func('reduce_mean', (a._var,))
-        mean_a = np.mean(mean_a)
+        assert _is_like_sa(a) and a.grid is self
+        a_interior = a._method('__getitem__', ((slice(1,-1), slice(1,-1)),))
+        mean_a = self._commander.func(np.mean, (a_interior,), {'axis' : (0,1)})
+        mean_a = np.mean(mean_a, axis=0)
         assert mean_a.shape == a.shape
         return mean_a
 
+    def _tile_data(self, data_tuple):
+        assert isinstance(data_tuple, tuple)
+        assert len(data_tuple) == self._nxProc * self._nyProc
+        data = []
+        for ix in range(self._nxProc):
+            data_ix = data_tuple[ix * self._nyProc : (ix + 1) * self._nyProc]
+            data.append(np.concatenate(data_ix, axis=1))
+        return np.concatenate(data, axis=0)
+
+    def save(self, filename, a):
+        assert _is_like_sa(a) and a.grid is self
+        interior = (slice(1,-1), slice(1,-1))
+        data_tuple = self._commander.method(a._var, '__getitem__', (interior,))
+        np.save(filename, self._tile_data(data_tuple))
+
+    def _decomp_data(self, big_data):
+        assert big_data.ndim >= 2
+        ni = self._commander.iRanges[-1][1]
+        nj = self._commander.jRanges[-1][1]
+        assert big_data.shape[:2] == (ni, nj)
+
+        data_list = []
+        for i0, i1 in self._commander.iRanges:
+            for j0, j1 in self._commander.jRanges:
+                data_list.append(big_data[i0:i1, j0:j1])
+        return tuple(data_list)
+
+    def load(self, filename):
+        big_data = self._decomp_data(np.load(filename))
+        res = self._func(np.array, tuple((data,) for data in big_data),
+                is_nonuniform_args=True)
+        return self._array(res, big_data[0].shape[2:])
+
 
 #==============================================================================#
-#                                  psarray numpy                               #
+#                              stencil_array class                             #
 #==============================================================================#
 
 class stencil_array(object):
@@ -485,7 +519,7 @@ class stencil_array(object):
     def _method(self, method_name, args=(), kwargs={}):
         result = commander.WorkerVariable()
         self.grid._commander.method(self._var, method_name, args, kwargs,
-                result_var=result)
+                result_var=result, return_result=False)
         return result
 
     # -------------------------------------------------------------------- #
@@ -557,6 +591,14 @@ class stencil_array(object):
     # asks ndarray to use the __rops__ defined in this class
     __array_priority__ = 5000
 
+    def _var_extended_dim(self, ndim):
+        if ndim > self.ndim:
+            ndim_extend = ndim - self.ndim
+            shape = (1,) * ndim_extend + self.shape
+            return self.grid._func('reshape', (self._var, shape))
+        else:
+            return self._var
+
     def __neg__(self):
         res = self.method('__neg__')
         return self.grid._array(res, self.shape)
@@ -567,17 +609,124 @@ class stencil_array(object):
     def __add__(self, a):
         if sa2d_decomp._is_like_sa(a):
             return a.__add__(self._decomp_sa_value)
+
         if _is_like_sa(a):
-            a = a._var
+            assert a.grid is self.grid
             shape = (self._dummy + a._dummy).shape
+            a = a._var_extended_dim(len(shape))
         else:
             shape = (self._dummy + a).shape
-        res = self.method('__add__', (a,))
+
+        var = self._var_extended_dim(len(shape))
+        res = self.grid._func(operator.add, (var, a))
         return self.grid._array(res, shape)
 
-#==============================================================================#
-#                                 grid2d class                                 #
-#==============================================================================#
+    def __rsub__(self, a):
+        return a + (-self)
+
+    def __sub__(self, a):
+        return self + (-a)
+
+    def __rmul__(self, a):
+        return self.__mul__(a)
+
+    def __mul__(self, a):
+        if sa2d_decomp._is_like_sa(a):
+            return a.__mul__(self._decomp_sa_value)
+
+        if _is_like_sa(a):
+            assert a.grid is self.grid
+            shape = (self._dummy * a._dummy).shape
+            a = a._var_extended_dim(len(shape))
+        else:
+            shape = (self._dummy * a).shape
+
+        var = self._var_extended_dim(len(shape))
+        res = self.grid._func(operator.mul, (var, a))
+        return self.grid._array(res, shape)
+
+    def __truediv__(self, a):
+        if sa2d_decomp._is_like_sa(a):
+            return a.__rtruediv__(self._decomp_sa_value)
+
+        if _is_like_sa(a):
+            assert a.grid is self.grid
+            shape = (self._dummy + a._dummy).shape
+            a = a._var_extended_dim(len(shape))
+        else:
+            shape = (self._dummy + a).shape
+
+        var = self._var_extended_dim(len(shape))
+        res = self.grid._func(operator.truediv, (var, a))
+        return self.grid._array(res, shape)
+
+    def __rtruediv__(self, a):
+        if sa2d_decomp._is_like_sa(a):
+            return a.__truediv__(self._decomp_sa_value)
+
+        if _is_like_sa(a):
+            assert a.grid is self.grid
+            shape = (self._dummy + a._dummy).shape
+            a = a._var_extended_dim(len(shape))
+        else:
+            shape = (self._dummy + a).shape
+
+        var = self._var_extended_dim(len(shape))
+        res = self.grid._func(operator.truediv, (a, var))
+        return self.grid._array(res, shape)
+
+    def __pow__(self, a):
+        if sa2d_decomp._is_like_sa(a):
+            return a.__rpow__(self._decomp_sa_value)
+
+        if _is_like_sa(a):
+            assert a.grid is self.grid
+            shape = (self._dummy + a._dummy).shape
+            a = a._var_extended_dim(len(shape))
+        else:
+            shape = (self._dummy + a).shape
+
+        var = self._var_extended_dim(len(shape))
+        res = self.grid._func(operator.pow, (var, a))
+        return self.grid._array(res, shape)
+
+    def __rpow__(self, a):
+        if sa2d_decomp._is_like_sa(a):
+            return a.__pow__(self._decomp_sa_value)
+
+        if _is_like_sa(a):
+            assert a.grid is self.grid
+            shape = (self._dummy + a._dummy).shape
+            a = a._var_extended_dim(len(shape))
+        else:
+            shape = (self._dummy + a).shape
+
+        var = self._var_extended_dim(len(shape))
+        res = self.grid._func(operator.pow, (a, var))
+        return self.grid._array(res, shape)
+
+    def sum(self, axis=None):
+        return self.grid.sum(self, axis)
+
+    def mean(self, axis=None):
+        return self.grid.mean(self, axis)
+
+    def transpose(self, axes=None):
+        return self.grid.transpose(self, axes)
+
+    @property
+    def T(self):
+        return self.grid.transpose(self)
+
+    def reshape(self, shape):
+        return self.grid.reshape(self, shape)
+
+    # -------------------------------------------------------------------- #
+    #                           input / output                             #
+    # -------------------------------------------------------------------- #
+
+    def save(self, filename):
+        self.grid.save(self)
 
 
 
