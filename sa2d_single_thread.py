@@ -68,11 +68,11 @@ class grid2d(object):
         elif self._math is T:
             return psarray_theano(self, data, shape)
 
-    def zeros(self, shape):
+    def zeros(self, shape=()):
         shape = self._preppend_shape(shape)
         return self._array(self._math.zeros(shape), shape[2:])
 
-    def ones(self, shape):
+    def ones(self, shape=()):
         shape = self._preppend_shape(shape)
         return self._array(self._math.ones(shape), shape[2:])
 

@@ -188,6 +188,7 @@ def mpi_worker_main():
     while True:
         next_task_list = command_comm.bcast(None)
         if next_task_list == 'finalize':
+            command_comm.Barrier()
             break
         elif next_task_list == 'scatter':
             next_task_list = command_comm.scatter(None)
@@ -252,10 +253,16 @@ class MPI_Commander(object):
 
     # -------------------------------------------------------------------- #
 
-    def __del__(self):
+    def dismiss(self):
         if self.comm is not None:
             self._broadcast_to_workers('finalize')
+            self.comm.Barrier()
             self.comm = None
+
+    # -------------------------------------------------------------------- #
+
+    def __del__(self):
+        self.dismiss()
 
     # -------------------------------------------------------------------- #
 

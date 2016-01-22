@@ -11,6 +11,7 @@ import numbers
 import doctest
 import unittest
 import operator
+import time
 import dill
 import numpy as np
 import theano
@@ -96,9 +97,15 @@ class grid2d(object):
         self._nxProc, self._nyProc = subdivide_rectangle(rect, num_processors)
 
         self._commander = commander.MPI_Commander(
-                self._ny, self._ny, self._nxProc, self._nyProc)
+                self._nx, self._ny, self._nxProc, self._nyProc)
 
         self._define_custom_functions()
+
+    def delete(self):
+        self._commander.dismiss()
+
+    def __del__(self):
+        self.delete()
 
     def __repr__(self):
         return 'Grid at memory {0}\n\twith shape ' \
@@ -178,7 +185,7 @@ class grid2d(object):
         '''
         return stencil_array(self, value, shape)
 
-    def zeros(self, shape):
+    def zeros(self, shape=()):
         '''
         Return a new array of given shape and type, filled with zeros.
 
@@ -195,7 +202,7 @@ class grid2d(object):
         res = self._func('make_worker_variable', (commander.ZERO, z))
         return self._array(res, z.shape)
 
-    def ones(self, shape):
+    def ones(self, shape=()):
         '''
         Return a new array of given shape and type, filled with ones.
 
@@ -754,103 +761,115 @@ class stencil_array(object):
 #                                  unit tests                                  #
 #==============================================================================#
 
+class CompareSerialMPI(unittest.TestCase):
+    def testEuler(self):
+        DISS_COEFF = 0.0025
+        gamma, R = 1.4, 287.
+        T0, p0, M0 = 300., 101325., 0.25
+
+        rho0 = p0 / (R * T0)
+        c0 = np.sqrt(gamma * R * T0)
+        u0 = c0 * M0
+        w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
+
+        Lx, Ly = 40., 10.
+        dx = dy = 0.05
+        dt = dx / c0 * 0.5
+
+        def EulerSteps(grid):
+            # ------------------------------------------------------------ #
+            #                        PROBLEM SET UP                        #
+            # ------------------------------------------------------------ #
+
+            x = (grid.i + 0.5) * dx - 0.2 * Lx
+            y = (grid.j + 0.5) * dy - 0.5 * Ly
+
+            obstacle = grid.exp(-((x**2 + y**2) / 1)**64)
+
+            fan = 2 * grid.cos((x / Lx + 0.2) * np.pi)**64
+
+            nPrintsPerPlot, nStepPerPrint = 400, 5
+
+            # ------------------------------------------------------------ #
+            #                FINITE DIFFERENCE DISCRETIZATION              #
+            # ------------------------------------------------------------ #
+
+            def diffx(w):
+                return (w.x_p - w.x_m) / (2 * dx)
+
+            def diffy(w):
+                return (w.y_p - w.y_m) / (2 * dy)
+
+            def dissipation(r, u, dc):
+                # conservative, negative definite dissipation
+                # applied to r*d(ru)/dt
+                laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
+                return laplace(dc * r * r * laplace(u))
+
+            def rhs(w):
+                r, ru, rv, p = w
+                u, v = ru / r, rv / r
+
+                mass = diffx(r * ru) + diffy(r * rv)
+                momentum_x = (diffx(ru*ru) + (r*ru) * diffx(u)) / 2.0 \
+                           + (diffy(rv*ru) + (r*rv) * diffy(u)) / 2.0 \
+                           + diffx(p)
+                momentum_y = (diffx(ru*rv) + (r*ru) * diffx(v)) / 2.0 \
+                           + (diffy(rv*rv) + (r*rv) * diffy(v)) / 2.0 \
+                           + diffy(p)
+                energy = gamma * (diffx(p * u) + diffy(p * v)) \
+                       - (gamma - 1) * (u * diffx(p) + v * diffy(p))
+
+                one = grid.ones(r.shape)
+                dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
+                dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
+                dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
+
+                momentum_x += dissipation_x
+                momentum_y += dissipation_y
+                energy += dissipation_p \
+                        - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
+
+                rhs_w = grid.zeros(w.shape)
+                rhs_w[0] = 0.5 * mass / r
+                rhs_w[1] = momentum_x / r
+                rhs_w[2] = momentum_y / r
+                rhs_w[-1] = energy
+
+                rhs_w[1:3] += 0.1 * c0 * obstacle * w[1:3]
+                rhs_w += 0.1 * c0 * (w - w0) * fan
+
+                return rhs_w
+
+            def step(w):
+                dw0 = -dt * rhs(w)
+                dw1 = -dt * rhs(w + 0.5 * dw0)
+                dw2 = -dt * rhs(w + 0.5 * dw1)
+                dw3 = -dt * rhs(w + dw2)
+                return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
+
+            w0 = grid.zeros()
+            w0 += np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
+            w1 = step(w0)
+            return w1
+
+        grid_mpi = grid2d(int(Lx / dx), int(Ly / dy), 3)
+        t0 = time.time()
+        w1_mpi = grid_mpi.gather_all_data(EulerSteps(grid_mpi))
+        print('MPI takes {0} seconds'.format(time.time() - t0))
+        grid_mpi.delete()
+
+        grid_serial = sa2d_single_thread.grid2d(int(Lx / dx), int(Ly / dy))
+        t0 = time.time()
+        w1_serial = EulerSteps(grid_serial)._data
+        print('Serial takes {0} seconds'.format(time.time() - t0))
+
+        self.assertAlmostEqual(np.abs(w1_mpi - w1_serial).max(), 0)
+
 
 #==============================================================================#
 
 if __name__ == '__main__':
+    import sa2d_single_thread
     doctest.testmod()
-    # G = grid2d(128, 128, 4)
-    # x = G.i + G.j
-    # print(x)
-
-    # ------------------------------------------------------------ #
-    #                        PROBLEM SET UP                        #
-    # ------------------------------------------------------------ #
-
-    DISS_COEFF = 0.0025
-    gamma, R = 1.4, 287.
-    T0, p0, M0 = 300., 101325., 0.25
-
-    rho0 = p0 / (R * T0)
-    c0 = np.sqrt(gamma * R * T0)
-    u0 = c0 * M0
-    w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
-
-    Lx, Ly = 40., 10.
-    dx = dy = 0.05
-    dt = dx / c0 * 0.5
-
-    grid = grid2d(int(Lx / dx), int(Ly / dy), 4)
-
-    x = (grid.i + 0.5) * dx - 0.2 * Lx
-    y = (grid.j + 0.5) * dy - 0.5 * Ly
-
-    obstacle = grid.exp(-((x**2 + y**2) / 1)**64)
-
-    fan = 2 * grid.cos((x / Lx + 0.2) * np.pi)**64
-
-    nPrintsPerPlot, nStepPerPrint = 400, 5
-
-    # ------------------------------------------------------------ #
-    #                FINITE DIFFERENCE DISCRETIZATION              #
-    # ------------------------------------------------------------ #
-
-    def diffx(w):
-        return (w.x_p - w.x_m) / (2 * dx)
-
-    def diffy(w):
-        return (w.y_p - w.y_m) / (2 * dy)
-
-    def dissipation(r, u, dc):
-        # conservative, negative definite dissipation applied to r*d(ru)/dt
-        laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
-        return laplace(dc * r * r * laplace(u))
-
-    def rhs(w):
-        r, ru, rv, p = w
-        u, v = ru / r, rv / r
-
-        mass = diffx(r * ru) + diffy(r * rv)
-        momentum_x = (diffx(ru*ru) + (r*ru) * diffx(u)) / 2.0 \
-                   + (diffy(rv*ru) + (r*rv) * diffy(u)) / 2.0 \
-                   + diffx(p)
-        momentum_y = (diffx(ru*rv) + (r*ru) * diffx(v)) / 2.0 \
-                   + (diffy(rv*rv) + (r*rv) * diffy(v)) / 2.0 \
-                   + diffy(p)
-        energy = gamma * (diffx(p * u) + diffy(p * v)) \
-               - (gamma - 1) * (u * diffx(p) + v * diffy(p))
-
-        one = grid.ones(r.shape)
-        dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
-        dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
-        dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
-
-        momentum_x += dissipation_x
-        momentum_y += dissipation_y
-        energy += dissipation_p \
-                - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
-
-        rhs_w = grid.zeros(w.shape)
-        rhs_w[0] = 0.5 * mass / r
-        rhs_w[1] = momentum_x / r
-        rhs_w[2] = momentum_y / r
-        rhs_w[-1] = energy
-
-        rhs_w[1:3] += 0.1 * c0 * obstacle * w[1:3]
-        rhs_w += 0.1 * c0 * (w - w0) * fan
-
-        return rhs_w
-
-    def step(w):
-        dw0 = -dt * rhs(w)
-        dw1 = -dt * rhs(w + 0.5 * dw0)
-        dw2 = -dt * rhs(w + 0.5 * dw1)
-        dw3 = -dt * rhs(w + dw2)
-        return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
-
-    w0 = grid.zeros(4)
-    w0 += np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
-    w1 = step(w0)
-    print(w0)
-    print(w1 - w0)
-    print(grid.reduce_sum((w1 - w0)**2))
+    unittest.main()
