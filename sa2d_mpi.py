@@ -8,6 +8,7 @@ from __future__ import division
 from __future__ import unicode_literals
 import sys
 import numbers
+import weakref
 import doctest
 import unittest
 import operator
@@ -86,6 +87,23 @@ class grid2d(object):
     Provides "global" utility function for array2d family of classes
     '''
 
+    class TempVar(weakref.ref):
+        def __init__(self, grid, var):
+            assert isinstance(var, commander.WorkerVariable)
+            self.grid = grid
+            self.key = var.key
+            weakref.ref.__init__(self, var, self.callback)
+
+        def callback(self):
+            var_to_del = commander.WorkerVariable(self.key)
+            self.grid._commander.delete_variable(var_to_del)
+            del self.grid._temp_vars[self.key]
+
+    def _add_temp_var(self, var):
+        self._temp_vars[var.key] = self.TempVar(self, var)
+
+    # -------------------------------------------------------------------- #
+
     def __init__(self, nx, ny, num_processors):
         assert nx > 0
         assert ny > 0
@@ -100,6 +118,8 @@ class grid2d(object):
                 self._nx, self._ny, self._nxProc, self._nyProc)
 
         self._define_custom_functions()
+
+        self._temp_vars = {}
 
     def delete(self):
         self._commander.dismiss()
@@ -450,6 +470,7 @@ class grid2d(object):
         '''
         assert _is_like_sa(a) and a.grid == self
         a_interior = a._method('__getitem__', ((slice(1,-1), slice(1,-1)),))
+        self._add_temp_vars(a_interior)
         sum_a = self._commander.func(np.sum, (a_interior,), {'axis' : (0,1)})
         sum_a = np.sum(sum_a, axis=0)
         assert sum_a.shape == a.shape
@@ -470,6 +491,7 @@ class grid2d(object):
         '''
         assert _is_like_sa(a) and a.grid is self
         a_interior = a._method('__getitem__', ((slice(1,-1), slice(1,-1)),))
+        self._add_temp_vars(a_interior)
         mean_a = self._commander.func(np.mean, (a_interior,), {'axis' : (0,1)})
         mean_a = np.mean(mean_a, axis=0)
         assert mean_a.shape == a.shape
@@ -622,7 +644,9 @@ class stencil_array(object):
         if ndim > self.ndim:
             ndim_extend = ndim - self.ndim
             shape = (1,) * ndim_extend + self.shape
-            return self.grid._func('reshape', (self._var, shape))
+            var = self.grid._func('reshape', (self._var, shape))
+            self.grid._add_temp_var(var)
+            return var
         else:
             return self._var
 
@@ -855,14 +879,16 @@ class CompareSerialMPI(unittest.TestCase):
 
         grid_mpi = grid2d(int(Lx / dx), int(Ly / dy), 3)
         t0 = time.time()
-        w1_mpi = grid_mpi.gather_all_data(EulerSteps(grid_mpi))
+        w1 = EulerSteps(grid_mpi)
+        w1_mpi = grid_mpi.gather_all_data(w1)
         print('MPI takes {0} seconds'.format(time.time() - t0))
         grid_mpi.delete()
 
         grid_serial = sa2d_single_thread.grid2d(int(Lx / dx), int(Ly / dy))
         t0 = time.time()
-        w1_serial = EulerSteps(grid_serial)._data
+        w1 = EulerSteps(grid_serial)
         print('Serial takes {0} seconds'.format(time.time() - t0))
+        w1_serial = w1._data
 
         self.assertAlmostEqual(np.abs(w1_mpi - w1_serial).max(), 0)
 

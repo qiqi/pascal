@@ -101,6 +101,12 @@ class MPI_Worker(object):
 
     # -------------------------------------------------------------------- #
 
+    def delete_variable(self, variable):
+        assert is_worker_variable(variable)
+        del self.variables[variable.key]
+
+    # -------------------------------------------------------------------- #
+
     def _substitute_args(self, args):
         substituted_args = []
         for arg in args:
@@ -195,7 +201,7 @@ def mpi_worker_main():
         try:
             method_name, args, return_result = next_task_list
             assert hasattr(worker, method_name), \
-                   'Worker does not have method named: {1}'.format(method_name)
+                   'Worker does not have method named: {0}'.format(method_name)
             worker_method = getattr(worker, method_name)
             return_val = worker_method(*args)
             if return_result:
@@ -229,6 +235,8 @@ class MPI_Commander(object):
 
     >>> comm.method(i_plus_j, 'sum')
     [132496.0, 267696.0, 267696.0, 402896.0]
+
+    >>> comm.delete_variable(i_plus_j)
     '''
     def __init__(self, ni, nj, niProc, njProc):
         self.comm = MPI.COMM_WORLD.Spawn(sys.executable,
@@ -292,12 +300,18 @@ class MPI_Commander(object):
 
     # -------------------------------------------------------------------- #
 
-    def method(self, variable_key, method_name, args=(), kwargs={},
+    def method(self, variable, method_name, args=(), kwargs={},
                result_var=None, return_result=True):
-        args = (variable_key, method_name, args, kwargs, result_var)
+        args = (variable, method_name, args, kwargs, result_var)
         self._broadcast_to_workers(('method', args, return_result))
         if return_result:
             return self._gather_from_workers()
+
+    # -------------------------------------------------------------------- #
+
+    def delete_variable(self, variable):
+        args = (variable,)
+        self._broadcast_to_workers(('delete_variable', args, False))
 
     # -------------------------------------------------------------------- #
 
