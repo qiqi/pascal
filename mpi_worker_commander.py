@@ -1,4 +1,5 @@
 from __future__ import division
+from __future__ import unicode_literals
 import sys
 import numbers
 import doctest
@@ -74,8 +75,10 @@ class MPI_Worker(object):
     # -------------------------------------------------------------------- #
 
     def func(self, func, args, kwargs, result_var):
-        if isinstance(func, str):
+        if isinstance(func, type('')):
             func = self.custom_funcs[func]
+        elif isinstance(func, bytes):
+            func = dill.loads(func)
         args = self._substitute_args(args)
         kwargs = self._substitute_kwargs(kwargs)
         try:
@@ -396,6 +399,15 @@ class TestFunctions(unittest.TestCase):
         comm = MPI_Commander(4, 8, 1, 2)
         sin_j = WorkerVariable()
         comm.func(np.sin, (J,), result_var=sin_j)
+        comm.func(np.copy, (sin_j,), result_var=sin_j)
+        sin_j_max = comm.func(np.max, (sin_j,))
+        self.assertAlmostEqual(sin_j_max[0], 0.90929742682568171)
+        self.assertAlmostEqual(sin_j_max[1], 0.98935824662338179)
+
+    def testPickledNumpyFunsions(self):
+        comm = MPI_Commander(4, 8, 1, 2)
+        sin_j = WorkerVariable()
+        comm.func(dill.dumps(np.sin), (J,), result_var=sin_j)
         comm.func(np.copy, (sin_j,), result_var=sin_j)
         sin_j_max = comm.func(np.max, (sin_j,))
         self.assertAlmostEqual(sin_j_max[0], 0.90929742682568171)

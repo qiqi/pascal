@@ -5,11 +5,13 @@
 ################################################################################
 
 from __future__ import division
+from __future__ import unicode_literals
 import sys
 import numbers
 import doctest
 import unittest
 import operator
+import dill
 import numpy as np
 import theano
 import theano.tensor as T
@@ -233,7 +235,7 @@ class grid2d(object):
         Calculate the logorithm of all elements in the input array.
         '''
         assert _is_like_sa(x) and x.grid is self
-        res = self._func(np.log, (x._var,))
+        res = self._func(dill.dumps(np.log), (x._var,))
         return self._array(res, x.shape)
 
     def exp(self, x):
@@ -241,7 +243,7 @@ class grid2d(object):
         Calculate the exponential of all elements in the input array.
         '''
         assert _is_like_sa(x) and x.grid is self
-        res = self._func(np.exp, (x._var,))
+        res = self._func(dill.dumps(np.exp), (x._var,))
         return self._array(res, x.shape)
 
     def sin(self, x):
@@ -249,7 +251,7 @@ class grid2d(object):
         Sine element-wise.
         '''
         assert _is_like_sa(x) and x.grid is self
-        res = self._func(np.sin, (x._var,))
+        res = self._func(dill.dumps(np.sin), (x._var,))
         return self._array(res, x.shape)
 
     def cos(self, x):
@@ -257,7 +259,7 @@ class grid2d(object):
         Cosine element-wise.
         '''
         assert _is_like_sa(x) and x.grid is self
-        res = self._func(np.cos, (x._var,))
+        res = self._func(dill.dumps(np.cos), (x._var,))
         return self._array(res, x.shape)
 
     def sum(self, x, axis=None):
