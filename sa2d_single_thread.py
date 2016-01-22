@@ -211,8 +211,8 @@ class psarray_base(object):
         return ind
 
     def __getitem__(self, ind):
-        data_ind = self._data_index_(ind)
         shape = np.empty(self.shape)[ind].shape
+        data_ind = self._data_index_(ind)
         return self.grid._array(self._data[data_ind], shape)
 
 

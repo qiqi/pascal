@@ -9,6 +9,7 @@ import sys
 import numbers
 import doctest
 import unittest
+import operator
 import numpy as np
 import theano
 import theano.tensor as T
@@ -97,13 +98,18 @@ class grid2d(object):
 
         self._define_custom_functions()
 
+    def __repr__(self):
+        return 'Grid at memory {0}\n\twith shape ' \
+               '{1} x {2}, distributed on {3} x {4} MPI processes'.format(
+               hex(id(self)), self._nx, self._ny, self._nxProc, self._nyProc)
+
     def _define_custom_functions(self):
         '''
         Define custom functions required by methods
         '''
         commander = self._commander
         commander.set_custom_func('make_worker_variable',
-                lambda ZERO, x : x + ZERO.reshape(z.shape + (1,) * x.ndim))
+                lambda ZERO, x : x + ZERO.reshape(ZERO.shape + (1,) * x.ndim))
         commander.set_custom_func('reshape',
                 lambda x, shape : x.reshape(x.shape[:2] + shape))
 
@@ -408,7 +414,7 @@ class grid2d(object):
         reshaped_array
         '''
         assert _is_like_sa(a) and a.grid == self
-        if isinstance(newshape, int)
+        if isinstance(newshape, int):
             newshape = (newshape,)
         else:
             newshape = tuple(newshape)
@@ -460,8 +466,8 @@ class grid2d(object):
         assert mean_a.shape == a.shape
         return mean_a
 
-    def _tile_data(self, data_tuple):
-        assert isinstance(data_tuple, tuple)
+    def _tile_data(self, data_iterable):
+        data_tuple = tuple(data_iterable)
         assert len(data_tuple) == self._nxProc * self._nyProc
         data = []
         for ix in range(self._nxProc):
@@ -469,11 +475,14 @@ class grid2d(object):
             data.append(np.concatenate(data_ix, axis=1))
         return np.concatenate(data, axis=0)
 
-    def save(self, filename, a):
+    def gather_all_data(self, a):
         assert _is_like_sa(a) and a.grid is self
         interior = (slice(1,-1), slice(1,-1))
-        data_tuple = self._commander.method(a._var, '__getitem__', (interior,))
-        np.save(filename, self._tile_data(data_tuple))
+        data_list = self._commander.method(a._var, '__getitem__', (interior,))
+        return self._tile_data(data_list)
+
+    def save(self, filename, a):
+        np.save(filename, self.gather_all_data(a))
 
     def _decomp_data(self, big_data):
         assert big_data.ndim >= 2
@@ -487,11 +496,14 @@ class grid2d(object):
                 data_list.append(big_data[i0:i1, j0:j1])
         return tuple(data_list)
 
-    def load(self, filename):
-        big_data = self._decomp_data(np.load(filename))
-        res = self._func(np.array, tuple((data,) for data in big_data),
+    def from_data(self, big_data):
+        decomp_data = self._decomp_data(big_data)
+        res = self._func(np.array, tuple((data,) for data in decomp_data),
                 is_nonuniform_args=True)
-        return self._array(res, big_data[0].shape[2:])
+        return self._array(res, big_data.shape[2:])
+
+    def load(self, filename):
+        return self.from_data(np.load(filename))
 
 
 #==============================================================================#
@@ -512,6 +524,11 @@ class stencil_array(object):
 
         self._decomp_sa_value = sa2d_decomp.stencil_array_value(self.shape)
         self._decomp_sa_value._reference = self
+
+    def __repr__(self):
+        return repr(self.grid.gather_all_data(self)) \
+                + '\n    of shape ' + repr(self.shape) \
+                + ', living on ' + repr(self.grid)
 
     def copy(self):
         return self.grid.copy(self)
@@ -547,18 +564,19 @@ class stencil_array(object):
     # -------------------------------------------------------------------- #
 
     def __getitem__(self, ind):
+        shape = self._dummy.__getitem__(ind).shape
         if not isinstance(ind, tuple):
             ind = (ind,)
-        ind = (slice(None), slice(None)) + ind
-        res = self._method('__getitem__', (ind,))
-        shape = self._dummy.__getitem__(ind).shape
+        data_ind = (slice(None), slice(None)) + ind
+        res = self._method('__getitem__', (data_ind,))
         return self.grid._array(res, shape)
 
     def __setitem__(self, ind, a):
         if not isinstance(ind, tuple):
             ind = (ind,)
         ind = (slice(None), slice(None)) + ind
-        res = self._method('__setitem__', (ind, a._var))
+        self.grid._commander.method(self._var, '__setitem__', (ind, a._var),
+                return_result=False)
 
     # -------------------------------------------------------------------- #
     #                         access spatial neighbors                     #
@@ -566,22 +584,22 @@ class stencil_array(object):
 
     @property
     def x_p(self):
-        res = self.method('__getitem__', ((slice(2,None), slice(1,-1)),))
+        res = self._method('__getitem__', ((slice(2,None), slice(1,-1)),))
         return self.grid._array(res, self.shape)
 
     @property
     def x_m(self):
-        res = self.method('__getitem__', ((slice(None,-2), slice(1,-1)),))
+        res = self._method('__getitem__', ((slice(None,-2), slice(1,-1)),))
         return self.grid._array(res, self.shape)
 
     @property
     def y_p(self):
-        res = self.method('__getitem__', ((slice(1,-1)), slice(2,None),))
+        res = self._method('__getitem__', ((slice(1,-1), slice(2,None)),))
         return self.grid._array(res, self.shape)
 
     @property
     def y_m(self):
-        res = self.method('__getitem__', ((slice(1,-1)), slice(None,-2),))
+        res = self._method('__getitem__', ((slice(1,-1), slice(None,-2)),))
         return self.grid._array(res, self.shape)
 
     # -------------------------------------------------------------------- #
@@ -600,7 +618,7 @@ class stencil_array(object):
             return self._var
 
     def __neg__(self):
-        res = self.method('__neg__')
+        res = self._method('__neg__')
         return self.grid._array(res, self.shape)
 
     def __radd__(self, a):
@@ -739,3 +757,98 @@ class stencil_array(object):
 
 if __name__ == '__main__':
     doctest.testmod()
+    # G = grid2d(128, 128, 4)
+    # x = G.i + G.j
+    # print(x)
+
+    # ------------------------------------------------------------ #
+    #                        PROBLEM SET UP                        #
+    # ------------------------------------------------------------ #
+
+    DISS_COEFF = 0.0025
+    gamma, R = 1.4, 287.
+    T0, p0, M0 = 300., 101325., 0.25
+
+    rho0 = p0 / (R * T0)
+    c0 = np.sqrt(gamma * R * T0)
+    u0 = c0 * M0
+    w0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
+
+    Lx, Ly = 40., 10.
+    dx = dy = 0.05
+    dt = dx / c0 * 0.5
+
+    grid = grid2d(int(Lx / dx), int(Ly / dy), 4)
+
+    x = (grid.i + 0.5) * dx - 0.2 * Lx
+    y = (grid.j + 0.5) * dy - 0.5 * Ly
+
+    obstacle = grid.exp(-((x**2 + y**2) / 1)**64)
+
+    fan = 2 * grid.cos((x / Lx + 0.2) * np.pi)**64
+
+    nPrintsPerPlot, nStepPerPrint = 400, 5
+
+    # ------------------------------------------------------------ #
+    #                FINITE DIFFERENCE DISCRETIZATION              #
+    # ------------------------------------------------------------ #
+
+    def diffx(w):
+        return (w.x_p - w.x_m) / (2 * dx)
+
+    def diffy(w):
+        return (w.y_p - w.y_m) / (2 * dy)
+
+    def dissipation(r, u, dc):
+        # conservative, negative definite dissipation applied to r*d(ru)/dt
+        laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
+        return laplace(dc * r * r * laplace(u))
+
+    def rhs(w):
+        r, ru, rv, p = w
+        u, v = ru / r, rv / r
+
+        mass = diffx(r * ru) + diffy(r * rv)
+        momentum_x = (diffx(ru*ru) + (r*ru) * diffx(u)) / 2.0 \
+                   + (diffy(rv*ru) + (r*rv) * diffy(u)) / 2.0 \
+                   + diffx(p)
+        momentum_y = (diffx(ru*rv) + (r*ru) * diffx(v)) / 2.0 \
+                   + (diffy(rv*rv) + (r*rv) * diffy(v)) / 2.0 \
+                   + diffy(p)
+        energy = gamma * (diffx(p * u) + diffy(p * v)) \
+               - (gamma - 1) * (u * diffx(p) + v * diffy(p))
+
+        one = grid.ones(r.shape)
+        dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
+        dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
+        dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
+
+        momentum_x += dissipation_x
+        momentum_y += dissipation_y
+        energy += dissipation_p \
+                - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
+
+        rhs_w = grid.zeros(w.shape)
+        rhs_w[0] = 0.5 * mass / r
+        rhs_w[1] = momentum_x / r
+        rhs_w[2] = momentum_y / r
+        rhs_w[-1] = energy
+
+        rhs_w[1:3] += 0.1 * c0 * obstacle * w[1:3]
+        rhs_w += 0.1 * c0 * (w - w0) * fan
+
+        return rhs_w
+
+    def step(w):
+        dw0 = -dt * rhs(w)
+        dw1 = -dt * rhs(w + 0.5 * dw0)
+        dw2 = -dt * rhs(w + 0.5 * dw1)
+        dw3 = -dt * rhs(w + dw2)
+        return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
+
+    w0 = grid.zeros(4)
+    w0 += np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
+    w1 = step(w0)
+    print(w0)
+    print(w1 - w0)
+    print(grid.reduce_sum((w1 - w0)**2))

@@ -1,11 +1,15 @@
 from __future__ import division
 import sys
-import operator
-import unittest
+import numbers
 import doctest
+import unittest
+import operator
+import traceback
 import dill
-from mpi4py import MPI
 import numpy as np
+import theano
+import theano.tensor as T
+from mpi4py import MPI
 
 
 #==============================================================================#
@@ -74,7 +78,11 @@ class MPI_Worker(object):
             func = self.custom_funcs[func]
         args = self._substitute_args(args)
         kwargs = self._substitute_kwargs(kwargs)
-        result = func(*args, **kwargs)
+        try:
+            result = func(*args, **kwargs)
+        except Exception as e:
+            raise RuntimeError('Error executing function {0} with args {1} ' \
+                    'and kwargs {2}'.format(func, args, kwargs))
         return self._update_result(result, result_var)
 
     # -------------------------------------------------------------------- #
@@ -101,9 +109,9 @@ class MPI_Worker(object):
     # -------------------------------------------------------------------- #
 
     def _substitute_kwargs(self, kwargs):
-        for kw in kwargs:
+        for kw, arg in kwargs.items():
             if is_worker_variable(arg):
-                kwargs[kw] = self.variables[kwarg[kw].keys]
+                kwargs[kw] = self.variables[arg.keys]
         return kwargs
 
     # -------------------------------------------------------------------- #
@@ -130,20 +138,28 @@ class MPI_Worker(object):
     def _update_result_neighbor(self, result):
         x_m, x_p, y_m, y_p = self.neighbor_ranks
 
-        MPI.COMM_WORLD.Isend(result[0,:], x_m)
-        MPI.COMM_WORLD.Isend(result[-1,:], x_p)
-        MPI.COMM_WORLD.Isend(result[:,0], y_m)
-        MPI.COMM_WORLD.Isend(result[:,-1], y_p)
+        MPI.COMM_WORLD.Isend(np.array(result[0,:], order='C'), x_m)
+        MPI.COMM_WORLD.Isend(np.array(result[-1,:], order='C'), x_p)
+        MPI.COMM_WORLD.Isend(np.array(result[:,0], order='C'), y_m)
+        MPI.COMM_WORLD.Isend(np.array(result[:,-1], order='C'), y_p)
+
+        x_buffer = np.empty((2,) + result.shape[1:])
+        y_buffer = np.empty((2, result.shape[0]) + result.shape[2:])
+
+        rq_x_m = MPI.COMM_WORLD.Irecv(x_buffer[0], x_m)
+        rq_x_p = MPI.COMM_WORLD.Irecv(x_buffer[1], x_p)
+        rq_y_m = MPI.COMM_WORLD.Irecv(y_buffer[0], y_m)
+        rq_y_p = MPI.COMM_WORLD.Irecv(y_buffer[1], y_p)
 
         ni, nj = result.shape[:2]
         full_result = np.ones((ni + 2, nj + 2) + result.shape[2:])
         full_result[1:-1,1:-1] = result
 
-        MPI.COMM_WORLD.Recv(full_result[0,1:-1], x_m)
-        MPI.COMM_WORLD.Recv(full_result[-1,1:-1], x_p)
-        MPI.COMM_WORLD.Recv(full_result[1:-1,0], y_m)
-        MPI.COMM_WORLD.Recv(full_result[1:-1,-1], y_p)
-
+        MPI.Request.Waitall([rq_x_m, rq_x_p, rq_y_m, rq_y_p])
+        full_result[0,1:-1] = x_buffer[0]
+        full_result[-1,1:-1] = x_buffer[-1]
+        full_result[1:-1,0] = y_buffer[0]
+        full_result[1:-1,-1] = y_buffer[-1]
         return full_result
 
 
@@ -167,18 +183,25 @@ def mpi_worker_main():
     worker = MPI_Worker(i, j, neighbor_ranks)
 
     while True:
-        next_task_list = command_comm.bcast(None, 0)
+        next_task_list = command_comm.bcast(None)
         if next_task_list == 'finalize':
             break
         elif next_task_list == 'scatter':
             next_task_list = command_comm.scatter(None)
-        method_name, args, return_result = next_task_list
-        assert hasattr(worker, method_name), \
-               'Worker does not have method named: {1}'.format(method_name)
-        worker_method = getattr(worker, method_name)
-        return_val = worker_method(*args)
-        if return_result is not None:
-            command_comm.gather(return_val, 0)
+        try:
+            method_name, args, return_result = next_task_list
+            assert hasattr(worker, method_name), \
+                   'Worker does not have method named: {1}'.format(method_name)
+            worker_method = getattr(worker, method_name)
+            return_val = worker_method(*args)
+            if return_result:
+                command_comm.gather(return_val, 0)
+        except Exception as e:
+            if return_result:
+                command_comm.gather(e, 0)
+            else:
+                sys.stderr.write('\nError on MPI_Worker {0}:\n{1}\n'.format(
+                    command_comm.rank, traceback.format_exc()))
 
 
 #==============================================================================#
@@ -192,11 +215,9 @@ class MPI_Commander(object):
 
     >>> comm = MPI_Commander(100, 100, 2, 2)
 
-    >>> i, j = WorkerVariable('i'), WorkerVariable('j')
-
     >>> i_plus_j = WorkerVariable()
 
-    >>> comm.func(operator.add, (i, j), result_var=i_plus_j)
+    >>> comm.func(operator.add, (I, J), result_var=i_plus_j)
     [None, None, None, None]
 
     >>> comm.func(np.shape, (i_plus_j,))
@@ -238,7 +259,6 @@ class MPI_Commander(object):
     def set_custom_func(self, name, func):
         args = (name, dill.dumps(func))
         self._broadcast_to_workers(('set_custom_func', args, False))
-        return self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
 
@@ -288,7 +308,12 @@ class MPI_Commander(object):
     # -------------------------------------------------------------------- #
 
     def _gather_from_workers(self):
-        return self.comm.gather(None, MPI.ROOT)
+        reports = self.comm.gather(None, MPI.ROOT)
+        for report in reports:
+            if isinstance(report, BaseException):
+                print(report)
+                raise report
+        return reports
 
 
 #==============================================================================#
