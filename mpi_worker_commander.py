@@ -210,8 +210,8 @@ def mpi_worker_main():
             if return_result:
                 command_comm.gather(e, 0)
             else:
-                sys.stderr.write('\nError on MPI_Worker {0}:\n{1}\n'.format(
-                    command_comm.rank, traceback.format_exc()))
+                sys.stderr.write('\nError on MPI_Worker {0}:{1}\n{2}\n'.format(
+                    command_comm.rank, e, traceback.format_exc()))
 
 
 #==============================================================================#
@@ -323,7 +323,8 @@ class MPI_Commander(object):
     # -------------------------------------------------------------------- #
 
     def _broadcast_to_workers(self, message):
-        self.comm.bcast(message, MPI.ROOT)
+        if self.comm:
+            self.comm.bcast(message, MPI.ROOT)
 
     def _scatter_to_workers(self, messages):
         self.comm.bcast('scatter', MPI.ROOT)
