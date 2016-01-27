@@ -603,11 +603,17 @@ class _MathOps(_OpTest):
             return x
         self._testOp(test01, 3)
 
-    def testSum(self):
+    def testSumMean(self):
         self._testOp(lambda x : x.sum(), 3)
         self._testOp(lambda x : x.sum(), (3, 4))
         self._testOp(lambda x : x.sum(axis=0), (3, 4))
         self._testOp(lambda x : x.sum(axis=1), (3, 4))
+        self._testOp(lambda x : x.sum(axis=[0,1]), (3, 4))
+        self._testOp(lambda x : x.mean(), 3)
+        self._testOp(lambda x : x.mean(), (3, 4))
+        self._testOp(lambda x : x.mean(axis=0), (3, 4))
+        self._testOp(lambda x : x.mean(axis=1), (3, 4))
+        self._testOp(lambda x : x.mean(axis=[0,1]), (3, 4))
 
     def testReshapeReduce(self):
         G = self.G

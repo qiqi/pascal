@@ -397,6 +397,7 @@ class _TestOperators(unittest.TestCase):
             c = -1 - np.ones(6) * b
             d = ones(6) ** (a / (ones([5,6]) / c))
             e = b ** np.ones(6) ** (a / (np.ones([5,6]) / d))
+            f = np.ones([2,1,6]) + a - np.zeros([1,2,5,1])
             return -d
         a = np.ones([3,4,5,6])
         f = compile(arb, a)

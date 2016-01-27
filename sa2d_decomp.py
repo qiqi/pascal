@@ -159,16 +159,20 @@ class stencil_array(object):
     __array_priority__ = 3000
 
     def __add__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__add__(self)
         a = a.value if _is_like_sa(a) else a
         owner = Op(operator.add, (self.value, a), name='add')
         return stencil_array(owner.output)
 
     def __radd__(self, a):
-        a = a.value if _is_like_sa(a) else a
-        owner = Op(operator.add, (a, self.value), name='add')
-        return stencil_array(owner.output)
+        return self.__add__(a)
 
     def __sub__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__rsub__(self)
         a = a.value if _is_like_sa(a) else a
         owner = Op(operator.sub, (self.value, a), name='sub')
         return stencil_array(owner.output)
@@ -179,16 +183,20 @@ class stencil_array(object):
         return stencil_array(owner.output)
 
     def __mul__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__rmul__(self)
         a = a.value if _is_like_sa(a) else a
         owner = Op(operator.mul, (self.value, a), name='mul')
         return stencil_array(owner.output)
 
     def __rmul__(self, a):
-        a = a.value if _is_like_sa(a) else a
-        owner = Op(operator.mul, (a, self.value), name='mul')
-        return stencil_array(owner.output)
+        return self.__mul__(a)
 
     def __truediv__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__rtruediv__(self)
         a = a.value if _is_like_sa(a) else a
         owner = Op(operator.truediv, (self.value, a), name='div')
         return stencil_array(owner.output)
@@ -199,6 +207,9 @@ class stencil_array(object):
         return stencil_array(owner.output)
 
     def __pow__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__rpow__(self)
         a = a.value if _is_like_sa(a) else a
         owner = Op(operator.pow, (self.value, a), name='pow')
         return stencil_array(owner.output)
@@ -670,6 +681,31 @@ class _TestMisc(unittest.TestCase):
         a = stencil_array()
         b = a * 2
         print(a, b)
+
+    def testPowerClass(self):
+        class PowerClass(object):
+            __array_priority__ = 10000000
+            __add__ = lambda self, a : 1
+            __rmul__ = lambda self, a : 2
+            __truediv__ = lambda self, a : 3
+            __rtruediv__ = lambda self, a : 4
+            __pow__ = lambda self, a : 5
+            __rpow__ = lambda self, a : 6
+            __sub__ = lambda self, a : 7
+            __rsub__ = lambda self, a : 8
+
+        a = PowerClass()
+        b = stencil_array()
+        self.assertEqual(a + b, 1)
+        self.assertEqual(b + a, 1)
+        self.assertEqual(a - b, 7)
+        self.assertEqual(b - a, 8)
+        self.assertEqual(a * b, 2)
+        self.assertEqual(b * a, 2)
+        self.assertEqual(a / b, 3)
+        self.assertEqual(b / a, 4)
+        self.assertEqual(a ** b, 5)
+        self.assertEqual(b ** a, 6)
 
 # ============================================================================ #
 

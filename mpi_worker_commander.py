@@ -234,7 +234,7 @@ class MPI_Commander(object):
     [(52, 52), (52, 52), (52, 52), (52, 52)]
 
     >>> comm.method(i_plus_j, 'sum')
-    [132496.0, 267696.0, 267696.0, 402896.0]
+    [132496, 267696, 267696, 402896]
 
     >>> comm.delete_variable(i_plus_j)
     '''
@@ -317,7 +317,7 @@ class MPI_Commander(object):
 
     @staticmethod
     def _i_ranges(ni, niProc):
-        iRanges = np.around(ni / niProc * np.arange(niProc + 1))
+        iRanges = np.array(np.around(ni / niProc * np.arange(niProc + 1)), int)
         return tuple((iRanges[i], iRanges[i+1]) for i in range(niProc))
 
     # -------------------------------------------------------------------- #
