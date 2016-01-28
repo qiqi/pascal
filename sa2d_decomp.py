@@ -112,7 +112,7 @@ class stencil_array_value(object):
 
     @property
     def size(self):
-        return np.prod(self.shape)
+        return int(np.prod(self.shape))
 
     def __len__(self):
         return 1 if not self.shape else self.shape[0]
@@ -607,6 +607,7 @@ class decompose(object):
 class Stage(object):
     def __init__(self, values, globalInputs, globalOutputs, k, K):
         assert k >= 0 and k < K
+        self.k = k
 
         isIn = lambda a : a.createStage < k and a.killStage >= k
         isOut = lambda a : a.createStage <= k and a.killStage > k
@@ -640,13 +641,65 @@ class Stage(object):
 
     # --------------------------------------------------------------------- #
 
+    def unstack_input(self, input_new_nbr, input_old_nbr):
+        old_nbr = lambda inp : inp.createStage < self.k - 1 or inp.hasNeighbor
+        input_objects = [None] * len(self.inputs)
+
+        ptr = 0
+        for i, inp in enumerate(self.inputs):
+            if not old_nbr(inp):
+                inp_obj = input_new_nbr[ptr : ptr + inp.size]
+                ptr += inp.size
+                input_objects[i] = inp_obj.reshape(inp.shape)
+        assert ptr == input_new_nbr.size
+
+        ptr = 0
+        for i, inp in enumerate(self.inputs):
+            if old_nbr(inp):
+                inp_obj = input_old_nbr[ptr : ptr + inp.size]
+                ptr += inp.size
+                input_objects[i] = inp_obj.reshape(inp.shape)
+        assert ptr == input_old_nbr.size
+
+        return input_objects
+
+    def stack_output(self, output_objects):
+        context = _infer_context(output_objects[0])
+        has_nbr = lambda out : out.createStage < self.k or out.hasNeighbor
+
+        size_no_nbr = builtins.sum(out.size for out in self.outputs \
+                                   if not has_nbr(out))
+        output_no_nbr = context.zeros(size_no_nbr)
+        ptr = 0
+        for out, out_obj in zip(self.outputs, output_objects):
+            assert out.shape == out_obj.shape
+            if not has_nbr(out):
+                output_no_nbr[ptr : ptr + out.size] = out_obj.reshape(out.size)
+                ptr += out.size
+        assert output_no_nbr.size == ptr
+
+        size_has_nbr = builtins.sum(out.size for out in self.outputs \
+                                    if has_nbr(out))
+        if size_has_nbr == 0:
+            return output_no_nbr
+
+        output_has_nbr = context.zeros(size_has_nbr)
+        ptr = 0
+        for out, out_obj in zip(self.outputs, output_objects):
+            assert out.shape == out_obj.shape
+            if has_nbr(out):
+                output_has_nbr[ptr : ptr + out.size] = out_obj.reshape(out.size)
+                ptr += out.size
+        assert output_has_nbr.size == ptr
+
+        return output_no_nbr, output_has_nbr
+
     def __call__(self, input_objects, source_objects=()):
         assert len(input_objects) == len(self.inputs)
         for a, a_obj in zip(self.inputs, input_objects):
             assert not hasattr(a, '_obj')
             a._obj = a_obj
 
-        assert len(source_objects) == len(self.sourceValues)
         for a, a_obj in zip(self.sourceValues, source_objects):
             assert not hasattr(a, '_obj')
             a._obj = a_obj
@@ -803,9 +856,8 @@ class _TestSimpleUpdates(unittest.TestCase):
         Ni, Nj = 4, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
         u0 = G.i + np.arange(2) * 8
-        source_objects = (G.zeros(()),)
 
-        result = stage0((u0,), source_objects)
+        result = stage0((u0,), (G.zeros(),))
         self.assertEqual(len(result), 1)
         result = result[0]
 
@@ -958,38 +1010,43 @@ def runStages(stages, u0, source_dict):
     import sa2d_theano
     Ni = u0.shape[0] - 2
     Nj = u0.shape[1] - 2
-    stage_in = (u0,)
+    stage_in = [u0]
     for k, stage in enumerate(stages):
         print('Compiling and running atomic stage {0}'.format(k))
-        if stage.sourceValues:
-            ns = len(stage.sourceValues)
-            stage_func = lambda inp : stage(inp[:-ns], inp[-ns:])
-            stage_in = stage_in + \
-                    tuple(source_dict[s] for s in stage.sourceValues)
-            compiled_stage = sa2d_theano.compile(stage_func, stage_in)
-        else:
-            compiled_stage = sa2d_theano.compile(stage, stage_in)
+        n = len(stage_in)
+
+        def stage_func(stage_in):
+            in_obj, src_obj = stage_in[:n], stage_in[n:]
+            if k > 0:
+                in_obj = stage.unstack_input(*tuple(in_obj))
+            out_obj = stage(in_obj, src_obj)
+            if k < len(stages) - 1:
+                out_obj = stage.stack_output(out_obj)
+            return out_obj
+
+        stage_in = stage_in + [source_dict[s] for s in stage.sourceValues]
+        compiled_stage = sa2d_theano.compile(stage_func, stage_in)
         stage_out = compiled_stage(*stage_in)
 
         if k == len(stages) - 1:
             break
 
-        stage_in = []
-        for a, val in zip(stage.outputs, stage_out):
-            assert val.shape[:2] == (Ni+2, Nj+2) or \
-                   val.shape[:2] == (Ni, Nj)
-            if val.shape[0] == Ni + 2:
-                stage_in.append(val)
-            else:
-                val_with_nbr = np.zeros((Ni+2, Nj+2) + val.shape[2:])
-                val_with_nbr[1:-1,1:-1] = val
-                val_with_nbr[0,1:-1] = val[-1,:]
-                val_with_nbr[-1,1:-1] = val[0,:]
-                val_with_nbr[1:-1,0] = val[:,-1]
-                val_with_nbr[1:-1,-1] = val[:,0]
-                stage_in.append(val_with_nbr)
+        out_no_nbr = stage_out[0]
+        assert out_no_nbr.ndim == 3
+        assert out_no_nbr.shape[:2] == (Ni, Nj)
+        if len(stage_out) > 1:
+            assert len(stage_out) == 2
+            assert stage_out[1].shape[:2] == (Ni + 2, Nj + 2)
 
-        stage_in = tuple(stage_in)
+        out_new_nbr = np.zeros((Ni+2, Nj+2, out_no_nbr.shape[2]))
+        out_new_nbr[1:-1,1:-1] = out_no_nbr
+        out_new_nbr[0,1:-1] = out_no_nbr[-1,:]
+        out_new_nbr[-1,1:-1] = out_no_nbr[0,:]
+        out_new_nbr[1:-1,0] = out_no_nbr[:,-1]
+        out_new_nbr[1:-1,-1] = out_no_nbr[:,0]
+
+        stage_in = list(stage_out)
+        stage_in[0] = out_new_nbr
 
     return stage_out
 
@@ -997,6 +1054,31 @@ def runStages(stages, u0, source_dict):
 
 class _TestTheano(unittest.TestCase):
     def testHeat(self):
+        f = stencil_array()
+
+        def heat(u):
+            dx = 0.1
+            return (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2 + f
+
+        def heatMidpoint(u):
+            dt = 0.01
+            return u + dt * heat(u)
+
+        heatStages = decompose(heatMidpoint, stencil_array())
+
+        Ni, Nj = 8, 8
+        i, j = ij_np(-1, Ni+1, -1, Nj+1)
+        u0 = np.sin(i / Ni * np.pi * 2)
+        f0 = u0 * 0
+
+        u1, = runStages(heatStages, u0, {f.value: f0})
+
+        dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
+        err = u1 - u0[1:-1,1:-1] * (1 - dudt)
+
+        self.assertAlmostEqual(0, np.abs(err).max())
+
+    def testHeatTwoStage(self):
         f = stencil_array()
 
         def heat(u):
@@ -1137,10 +1219,7 @@ class _TestEuler(unittest.TestCase):
         inp = (w0,)
         z = G.zeros(())
         for stage in stages:
-            if len(stage.sourceValues):
-                inp = stage(inp, (z,))
-            else:
-                inp = stage(inp)
+            inp = stage(inp, (z,))
 
         result, = inp
         err = result - step(w0)
@@ -1242,6 +1321,7 @@ class _TestEuler(unittest.TestCase):
 if __name__ == '__main__':
     import sa2d_single_thread
     unittest.main()
+    # _TestTheano().testHeatTwoStage()
     # _TestEuler().testTunnelRk4()
 
 ################################################################################

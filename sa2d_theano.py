@@ -25,7 +25,10 @@ def _promote_ndim(t, ndim):
     else:
         assert t.ndim < ndim
         pad_dim = T.ones(ndim - t.ndim, int)
-        new_shape = T.join(0, t.shape[:2], pad_dim, t.shape[2:])
+        if t.ndim == 2:
+            new_shape = T.join(0, t.shape[:2], pad_dim)
+        else:
+            new_shape = T.join(0, t.shape[:2], pad_dim, t.shape[2:])
         pt = T.reshape(t, new_shape, ndim=ndim)
 
         broadcastable = t.broadcastable[:2] + (True,) * (ndim - t.ndim) \
@@ -223,6 +226,7 @@ class stencil_array(object):
                 while z.ndim > 2:
                     z = z[:,:,0]
                 self.tensor = self.tensor + _promote_ndim(z, self.tensor.ndim)
+                self.has_ghost = a.has_ghost
                 sub_tensor = self.tensor[self._data_index_(ind)]
 
             if a.has_ghost == self.has_ghost or _is_broadcastable(a_tensor):
@@ -248,7 +252,10 @@ def transpose(x, axes=None):
 def reshape(x, shape):
     shape = np.empty(x.shape).reshape(shape).shape
     ndim = len(shape) + 2
-    tensor_shape = T.join(0, x.tensor.shape[:2], shape)
+    if len(shape):
+        tensor_shape = T.join(0, x.tensor.shape[:2], shape)
+    else:
+        tensor_shape = x.tensor.shape[:2]
     reshaped_tensor = x.tensor.reshape(tensor_shape, ndim=ndim)
     return stencil_array(shape, reshaped_tensor, x.has_ghost)
 
