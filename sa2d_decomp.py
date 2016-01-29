@@ -71,8 +71,11 @@ class Op(object):
         self.inputs = copymodule.copy(tuple(inputs))
         self.name = name
 
-        produce_dummy = lambda a : \
-            dummy_func(a.shape) if _is_like_sa_value(a) else a
+        produce_dummy = (lambda a:
+            dummy_func(a.shape)
+            if _is_like_sa_value(a)
+            else a
+            )
         dummy_inputs = tuple(map(produce_dummy, self.inputs))
         if shape is None:
             shape = operation(*dummy_inputs).shape
@@ -258,25 +261,33 @@ class stencil_array(object):
 
     @property
     def x_p(self):
-        owner = Op(lambda x : x.x_p, (self.value,), access_neighbor=True,
+        owner = Op(lambda x: x.x_p,
+                   (self.value,),
+                   access_neighbor=True,
                    dummy_func=self.dummy_func)
         return stencil_array(owner.output)
 
     @property
     def x_m(self):
-        owner = Op(lambda x : x.x_m, (self.value,), access_neighbor=True,
+        owner = Op(lambda x: x.x_m,
+                   (self.value,),
+                   access_neighbor=True,
                    dummy_func=self.dummy_func)
         return stencil_array(owner.output)
 
     @property
     def y_p(self):
-        owner = Op(lambda x : x.y_p, (self.value,), access_neighbor=True,
+        owner = Op(lambda x: x.y_p,
+                   (self.value,),
+                   access_neighbor=True,
                    dummy_func=self.dummy_func)
         return stencil_array(owner.output)
 
     @property
     def y_m(self):
-        owner = Op(lambda x : x.y_m, (self.value,), access_neighbor=True,
+        owner = Op(lambda x: x.y_m,
+                   (self.value,),
+                   access_neighbor=True,
                    dummy_func=self.dummy_func)
         return stencil_array(owner.output)
 
@@ -284,7 +295,7 @@ class stencil_array(object):
 
     def __getitem__(self, ind):
         ind = copymodule.copy(ind)
-        op = lambda x : x[ind]
+        op = lambda x: x[ind]
         owner = Op(op, (self.value,), name='getitem[{0}]'.format(ind))
         return stencil_array(owner.output)
 
@@ -309,21 +320,21 @@ class stencil_array(object):
 def transpose(x, axes=None):
     assert _is_like_sa(x)
     axes = copymodule.copy(axes)
-    op = lambda x : x.transpose(axes)
+    op = lambda x: x.transpose(axes)
     owner = Op(op, (x.value,), name='transpose')
     return stencil_array(owner.output)
 
 def reshape(x, shape):
     assert _is_like_sa(x)
     shape = copymodule.copy(shape)
-    op = lambda x : x.reshape(shape)
+    op = lambda x: x.reshape(shape)
     owner = Op(op, (x.value,), name='reshape')
     return stencil_array(owner.output)
 
 def roll(x, shift, axis=None):
     assert _is_like_sa(x)
     shift, axis = copymodule.copy(shift), copymodule.copy(axis)
-    op = lambda x : _infer_context(x).roll(x, shift, axis)
+    op = lambda x: _infer_context(x).roll(x, shift, axis)
     owner = Op(op, (x.value,), name='reshape')
     return stencil_array(owner.output)
 
@@ -338,30 +349,33 @@ def copy(x):
 
 def sin(a):
     assert _is_like_sa(a)
-    owner = Op(lambda x : _infer_context(x).sin(x), (a.value,), name='sin')
+    op = lambda x: _infer_context(x).sin(x)
+    owner = Op(op, (a.value,), name='sin')
     return stencil_array(owner.output)
 
 def cos(a):
     assert _is_like_sa(a)
-    owner = Op(lambda x : _infer_context(x).cos(x), (a.value,), name='cos')
+    op = lambda x: _infer_context(x).cos(x)
+    owner = Op(op, (a.value,), name='cos')
     return stencil_array(owner.output)
 
 def exp(a):
     assert _is_like_sa(a)
-    owner = Op(lambda x : _infer_context(x).exp(x), (a.value,), name='exp')
+    op = lambda x: _infer_context(x).exp(x)
+    owner = Op(op, (a.value,), name='exp')
     return stencil_array(owner.output)
 
 def sum(a, axis=None):
     assert _is_like_sa(a)
     axis = copymodule.copy(axis)
-    op = lambda x : _infer_context(x).sum(x, axis)
+    op = lambda x: _infer_context(x).sum(x, axis)
     owner = Op(op, (a.value,), name='sum')
     return stencil_array(owner.output)
 
 def mean(a, axis=None):
     assert _is_like_sa(a)
     axis = copymodule.copy(axis)
-    op = lambda x : _infer_context(x).mean(x, axis)
+    op = lambda x: _infer_context(x).mean(x, axis)
     owner = Op(op, (a.value,), name='mean')
     return stencil_array(owner.output)
 
@@ -609,19 +623,21 @@ class Stage(object):
         assert k >= 0 and k < K
         self.k = k
 
-        isIn = lambda a : a.createStage < k and a.killStage >= k
-        isOut = lambda a : a.createStage <= k and a.killStage > k
+        isIn = lambda a: a.createStage < k and a.killStage >= k
+        isOut = lambda a: a.createStage <= k and a.killStage > k
 
-        self.inputs = tuple(filter(isIn, values)) \
-            if k > 0 else globalInputs
-        self.outputs = tuple(filter(isOut, values)) \
-            if k < K - 1 else globalOutputs
+        self.inputs = (tuple(filter(isIn, values)) if k > 0
+                       else globalInputs)
+        self.outputs = (tuple(filter(isOut, values)) if k < K - 1
+                        else globalOutputs)
 
-        isKSource = lambda a : a.createStage == k and a.owner is None and \
-                               a not in globalInputs
+        isKSource = lambda a: (a.createStage == k and
+                               a.owner is None and
+                               a not in globalInputs)
         self.sourceValues = tuple(filter(isKSource, values))
 
-        isKVar = lambda a : a.createStage == k and a.owner is not None
+        isKVar = lambda a: (a.createStage == k and
+                            a.owner is not None)
         self._order_values(list(filter(isKVar, values)))
 
     def _order_values(self, stage_k_values):
@@ -629,9 +645,9 @@ class Stage(object):
         while stage_k_values:
             numRemoved = 0
             for a in stage_k_values:
-                isReady = lambda b : b in self.orderedValues or \
-                                     b in self.inputs or \
-                                     b in self.sourceValues
+                isReady = lambda b: (b in self.orderedValues or
+                                     b in self.inputs or
+                                     b in self.sourceValues)
                 a_inputs = filter(_is_like_sa_value, a.owner.inputs)
                 if all([isReady(b) for b in a_inputs]):
                     self.orderedValues.append(a)
@@ -642,7 +658,8 @@ class Stage(object):
     # --------------------------------------------------------------------- #
 
     def unstack_input(self, input_new_nbr, input_old_nbr):
-        old_nbr = lambda inp : inp.createStage < self.k - 1 or inp.hasNeighbor
+        old_nbr = lambda inp: (inp.createStage < self.k - 1 or
+                               inp.hasNeighbor)
         input_objects = [None] * len(self.inputs)
 
         ptr = 0
@@ -665,21 +682,24 @@ class Stage(object):
 
     def stack_output(self, output_objects):
         context = _infer_context(output_objects[0])
-        has_nbr = lambda out : out.createStage < self.k or out.hasNeighbor
+        has_nbr = lambda out: out.createStage < self.k or out.hasNeighbor
 
-        size_no_nbr = builtins.sum(out.size for out in self.outputs \
-                                   if not has_nbr(out))
+        size_no_nbr = builtins.sum(
+                out.size for out in self.outputs if not has_nbr(out)
+                )
         output_no_nbr = context.zeros(size_no_nbr)
         ptr = 0
         for out, out_obj in zip(self.outputs, output_objects):
             assert out.shape == out_obj.shape
             if not has_nbr(out):
-                output_no_nbr[ptr : ptr + out.size] = out_obj.reshape(out.size)
+                out_obj = out_obj.reshape(out.size)
+                output_no_nbr[ptr : ptr + out.size] = out_obj
                 ptr += out.size
         assert output_no_nbr.size == ptr
 
-        size_has_nbr = builtins.sum(out.size for out in self.outputs \
-                                    if has_nbr(out))
+        size_has_nbr = builtins.sum(
+                out.size for out in self.outputs if has_nbr(out)
+                )
         if size_has_nbr == 0:
             return output_no_nbr
 
@@ -688,7 +708,8 @@ class Stage(object):
         for out, out_obj in zip(self.outputs, output_objects):
             assert out.shape == out_obj.shape
             if has_nbr(out):
-                output_has_nbr[ptr : ptr + out.size] = out_obj.reshape(out.size)
+                out_obj = out_obj.reshape(out.size)
+                output_has_nbr[ptr : ptr + out.size] = out_obj
                 ptr += out.size
         assert output_has_nbr.size == ptr
 
@@ -708,7 +729,7 @@ class Stage(object):
             assert not hasattr(a, '_obj')
             a_inputs = filter(_is_like_sa_value, a.owner.inputs)
             assert all([hasattr(b, '_obj') for b in a_inputs])
-            extract_obj = lambda b : b._obj if _is_like_sa_value(b) else b
+            extract_obj = lambda b: b._obj if _is_like_sa_value(b) else b
             a_input_objects = tuple(extract_obj(b) for b in a.owner.inputs)
             a._obj = a.owner.perform(a_input_objects)
 
@@ -738,14 +759,14 @@ class _TestMisc(unittest.TestCase):
     def testPowerClass(self):
         class PowerClass(object):
             __array_priority__ = 10000000
-            __add__ = lambda self, a : 1
-            __rmul__ = lambda self, a : 2
-            __truediv__ = lambda self, a : 3
-            __rtruediv__ = lambda self, a : 4
-            __pow__ = lambda self, a : 5
-            __rpow__ = lambda self, a : 6
-            __sub__ = lambda self, a : 7
-            __rsub__ = lambda self, a : 8
+            __add__ = lambda self, a: 1
+            __rmul__ = lambda self, a: 2
+            __truediv__ = lambda self, a: 3
+            __rtruediv__ = lambda self, a: 4
+            __pow__ = lambda self, a: 5
+            __rpow__ = lambda self, a: 6
+            __sub__ = lambda self, a: 7
+            __rsub__ = lambda self, a: 8
 
         a = PowerClass()
         b = stencil_array()
@@ -1167,7 +1188,7 @@ class _TestEuler(unittest.TestCase):
 
         def dissipation(r, u, dc):
             # conservative, negative definite dissipation applied to r*d(ru)/dt
-            laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
+            laplace = lambda u: (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
             return laplace(dc * r * r * laplace(u))
 
         def rhs(w):
@@ -1257,7 +1278,7 @@ class _TestEuler(unittest.TestCase):
 
         def dissipation(r, u, dc):
             # conservative, negative definite dissipation applied to r*d(ru)/dt
-            laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
+            laplace = lambda u: (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
             return laplace(dc * r * r * laplace(u))
 
         def rhs(w):

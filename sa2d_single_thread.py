@@ -8,6 +8,7 @@ from __future__ import division
 import sys
 import numbers
 import unittest
+
 import numpy as np
 import theano
 import theano.tensor as T
@@ -25,10 +26,8 @@ class grid2d(object):
     def __init__(self, nx, ny):
         assert nx > 0
         assert ny > 0
-
         self._nx = int(nx)
         self._ny = int(ny)
-
         # switches between numpy and theano.tensor as needed
         self._math = np
 
@@ -133,7 +132,8 @@ class grid2d(object):
         assert x.grid is self
         if axes is None:
             axes = tuple(reversed(range(x.ndim)))
-        data = x._data.transpose((0, 1) + tuple(i+2 for i in axes))
+        data_axes = (0, 1) + tuple(i+2 for i in axes)
+        data = x._data.transpose(data_axes)
         shape = tuple(x.shape[i] for i in axes)
         return self._array(data, shape)
 
@@ -141,7 +141,8 @@ class grid2d(object):
         if axis is None:
             data = x._data.reshape((self.nx, self.ny, -1))
             data = self._math.roll(data, shift)
-            data = data.reshape(self._preppend_shape(x.shape, x))
+            data_shape = self._preppend_shape(x.shape, x)
+            data = data.reshape(data_shape)
         else:
             data = self._math.roll(x._data, shift, axis+2)
         return self._array(data, x.shape)
@@ -254,15 +255,17 @@ class psarray_base(object):
         return self.__add__(a)
 
     def __add__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
-            return a.__add__(self)
+        if hasattr(a, '__array_priority__'):
+            if a.__array_priority__ > self.__array_priority__:
+                return a.__add__(self)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
 
-            data = self.grid._data_ndim(self, ndim) \
-                 + self.grid._data_ndim(a, ndim)
+            self_data = self.grid._data_ndim(self, ndim)
+            a_data = self.grid._data_ndim(a, ndim)
+            data = self_data + a_data
+
             shape = (np.zeros(self.shape) + np.zeros(a.shape)).shape
             return self.grid._array(data, shape)
         else:
@@ -283,15 +286,18 @@ class psarray_base(object):
         return self.__mul__(a)
 
     def __mul__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
-            return a.__rmul__(self)
+        if hasattr(a, '__array_priority__'):
+            if a.__array_priority__ > self.__array_priority__:
+                return a.__rmul__(self)
+
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
 
-            data = self.grid._data_ndim(self, ndim) \
-                 * self.grid._data_ndim(a, ndim)
+            self_data = self.grid._data_ndim(self, ndim)
+            a_data = self.grid._data_ndim(a, ndim)
+            data = self_data * a_data
+
             shape = (np.zeros(self.shape) * np.zeros(a.shape)).shape
             return self.grid._array(data, shape)
         else:
@@ -303,15 +309,18 @@ class psarray_base(object):
             return self.grid._array(data * a, shape)
 
     def __truediv__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
-            return a.__rtruediv__(self)
+        if hasattr(a, '__array_priority__'):
+            if a.__array_priority__ > self.__array_priority__:
+                return a.__rtruediv__(self)
+
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
 
-            data = self.grid._data_ndim(self, ndim) \
-                 / self.grid._data_ndim(a, ndim)
+            self_data = self.grid._data_ndim(self, ndim)
+            a_data = self.grid._data_ndim(a, ndim)
+            data = self_data / a_data
+
             shape = (np.zeros(self.shape) / np.ones(a.shape)).shape
             return self.grid._array(data, shape)
         else:
@@ -331,15 +340,18 @@ class psarray_base(object):
         return self.grid._array(a / data, shape)
 
     def __pow__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
-            return a.__rpow__(self)
+        if hasattr(a, '__array_priority__'):
+            if a.__array_priority__ > self.__array_priority__:
+                return a.__rpow__(self)
+
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
             ndim = max(a.ndim, self.ndim)
 
-            data = self.grid._data_ndim(self, ndim) \
-                 ** self.grid._data_ndim(a, ndim)
+            self_data = self.grid._data_ndim(self, ndim)
+            a_data = self.grid._data_ndim(a, ndim)
+            data = self_data ** a_data
+
             shape = (np.ones(self.shape) ** np.ones(a.shape)).shape
             return self.grid._array(data, shape)
         else:
@@ -532,68 +544,68 @@ class _OpTest(unittest.TestCase):
 
 class _MathOps(_OpTest):
     def testAdd(self):
-        self._testOp(lambda x : 1 + x, 3)
-        self._testOp(lambda x : x + 1, 3)
+        self._testOp(lambda x: 1 + x, 3)
+        self._testOp(lambda x: x + 1, 3)
 
-        self._testOp(lambda x : x + np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) + x, 3)
-        self._testOp(lambda x : np.ones([4,2,3]) + x + np.ones([3]), [2,3])
+        self._testOp(lambda x: x + np.ones(3), 3)
+        self._testOp(lambda x: np.ones(3) + x, 3)
+        self._testOp(lambda x: np.ones([4,2,3]) + x + np.ones([3]), [2,3])
 
         G = self.G
-        self._testOp(lambda x : x + G.ones(3), 3)
-        self._testOp(lambda x : G.ones(3) + x, 3)
-        self._testOp(lambda x : G.ones([4,2,3]) + x + G.ones([3]), [2,3])
+        self._testOp(lambda x: x + G.ones(3), 3)
+        self._testOp(lambda x: G.ones(3) + x, 3)
+        self._testOp(lambda x: G.ones([4,2,3]) + x + G.ones([3]), [2,3])
 
     def testSub(self):
-        self._testOp(lambda x : 1 - x, 3)
-        self._testOp(lambda x : x - 1, 3)
+        self._testOp(lambda x: 1 - x, 3)
+        self._testOp(lambda x: x - 1, 3)
 
-        self._testOp(lambda x : x - np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) - x, 3)
-        self._testOp(lambda x : np.ones([4,2,3]) - x - np.ones([3]), [2,3])
+        self._testOp(lambda x: x - np.ones(3), 3)
+        self._testOp(lambda x: np.ones(3) - x, 3)
+        self._testOp(lambda x: np.ones([4,2,3]) - x - np.ones([3]), [2,3])
 
         G = self.G
-        self._testOp(lambda x : x - G.ones(3), 3)
-        self._testOp(lambda x : G.ones(3) - x, 3)
-        self._testOp(lambda x : G.ones([4,2,3]) - x - G.ones([3]), [2,3])
+        self._testOp(lambda x: x - G.ones(3), 3)
+        self._testOp(lambda x: G.ones(3) - x, 3)
+        self._testOp(lambda x: G.ones([4,2,3]) - x - G.ones([3]), [2,3])
 
     def testMul(self):
-        self._testOp(lambda x : 1 * x, 3)
-        self._testOp(lambda x : x * 1, 3)
+        self._testOp(lambda x: 1 * x, 3)
+        self._testOp(lambda x: x * 1, 3)
 
-        self._testOp(lambda x : x * np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) * x, 3)
-        self._testOp(lambda x : np.ones([4,2,3]) * x * np.ones([3]), [2,3])
+        self._testOp(lambda x: x * np.ones(3), 3)
+        self._testOp(lambda x: np.ones(3) * x, 3)
+        self._testOp(lambda x: np.ones([4,2,3]) * x * np.ones([3]), [2,3])
 
         G = self.G
-        self._testOp(lambda x : x * G.ones(3), 3)
-        self._testOp(lambda x : G.ones(3) * x, 3)
-        self._testOp(lambda x : G.ones([4,2,3]) * x * G.ones([3]), [2,3])
+        self._testOp(lambda x: x * G.ones(3), 3)
+        self._testOp(lambda x: G.ones(3) * x, 3)
+        self._testOp(lambda x: G.ones([4,2,3]) * x * G.ones([3]), [2,3])
 
     def testDiv(self):
-        self._testOp(lambda x : 1 / x, 3)
-        self._testOp(lambda x : x / 1, 3)
+        self._testOp(lambda x: 1 / x, 3)
+        self._testOp(lambda x: x / 1, 3)
 
-        self._testOp(lambda x : x / np.ones(3), 3)
-        self._testOp(lambda x : np.ones(3) / x, 3)
-        self._testOp(lambda x : np.ones([4,2,3]) / x / np.ones([3]), [2,3])
+        self._testOp(lambda x: x / np.ones(3), 3)
+        self._testOp(lambda x: np.ones(3) / x, 3)
+        self._testOp(lambda x: np.ones([4,2,3]) / x / np.ones([3]), [2,3])
 
         G = self.G
-        self._testOp(lambda x : x / G.ones(3), 3)
-        self._testOp(lambda x : G.ones(3) / x, 3)
-        self._testOp(lambda x : G.ones([4,2,3]) / x / G.ones([3]), [2,3])
+        self._testOp(lambda x: x / G.ones(3), 3)
+        self._testOp(lambda x: G.ones(3) / x, 3)
+        self._testOp(lambda x: G.ones([4,2,3]) / x / G.ones([3]), [2,3])
 
         a = G.ones(())
-        self._testOp(lambda x : x / a, 3)
-        self._testOp(lambda x : a / x, 3)
-        self._testOp(lambda x : (a / x) / x, 3)
+        self._testOp(lambda x: x / a, 3)
+        self._testOp(lambda x: a / x, 3)
+        self._testOp(lambda x: (a / x) / x, 3)
 
     def testPow(self):
-        self._testOp(lambda x : x ** x, 3)
-        self._testOp(lambda x : 2 ** x, 3)
-        self._testOp(lambda x : x ** 2, 3)
-        self._testOp(lambda x : np.ones(3) ** x, 3)
-        self._testOp(lambda x : x ** np.ones(3), 3)
+        self._testOp(lambda x: x ** x, 3)
+        self._testOp(lambda x: 2 ** x, 3)
+        self._testOp(lambda x: x ** 2, 3)
+        self._testOp(lambda x: np.ones(3) ** x, 3)
+        self._testOp(lambda x: x ** np.ones(3), 3)
 
     def testUnivariate(self):
         G = self.G
@@ -604,48 +616,48 @@ class _MathOps(_OpTest):
         self._testOp(test01, 3)
 
     def testSumMean(self):
-        self._testOp(lambda x : x.sum(), 3)
-        self._testOp(lambda x : x.sum(), (3, 4))
-        self._testOp(lambda x : x.sum(axis=0), (3, 4))
-        self._testOp(lambda x : x.sum(axis=1), (3, 4))
-        self._testOp(lambda x : x.sum(axis=[0,1]), (3, 4))
-        self._testOp(lambda x : x.mean(), 3)
-        self._testOp(lambda x : x.mean(), (3, 4))
-        self._testOp(lambda x : x.mean(axis=0), (3, 4))
-        self._testOp(lambda x : x.mean(axis=1), (3, 4))
-        self._testOp(lambda x : x.mean(axis=[0,1]), (3, 4))
+        self._testOp(lambda x: x.sum(), 3)
+        self._testOp(lambda x: x.sum(), (3, 4))
+        self._testOp(lambda x: x.sum(axis=0), (3, 4))
+        self._testOp(lambda x: x.sum(axis=1), (3, 4))
+        self._testOp(lambda x: x.sum(axis=[0,1]), (3, 4))
+        self._testOp(lambda x: x.mean(), 3)
+        self._testOp(lambda x: x.mean(), (3, 4))
+        self._testOp(lambda x: x.mean(axis=0), (3, 4))
+        self._testOp(lambda x: x.mean(axis=1), (3, 4))
+        self._testOp(lambda x: x.mean(axis=[0,1]), (3, 4))
 
     def testReshapeReduce(self):
         G = self.G
-        self._testOp(lambda x : x.reshape(12), (3, 4))
-        self._testOp(lambda x : x + G.reduce_sum(x), (3, 4))
-        self._testOp(lambda x : x.copy() - G.reduce_mean(x), (3, 4))
+        self._testOp(lambda x: x.reshape(12), (3, 4))
+        self._testOp(lambda x: x + G.reduce_sum(x), (3, 4))
+        self._testOp(lambda x: x.copy() - G.reduce_mean(x), (3, 4))
 
 
 class _Indexing(_OpTest):
     def testGet(self):
-        self._testOp(lambda x : x[2], (3,))
-        self._testOp(lambda x : x[:], (3,))
-        self._testOp(lambda x : x[:,0], (3, 4))
-        self._testOp(lambda x : x[:,:2], (3, 4))
-        self._testOp(lambda x : x[:-2,2:2:2], (3, 4))
-        self._testOp(lambda x : x[:,np.newaxis] * x[np.newaxis,:], (4,))
-        self._testOp(lambda x : x[np.newaxis,:-2,2:2:2], (3, 4))
-        self._testOp(lambda x : x[:-2,np.newaxis,2:2:2], (3, 4))
+        self._testOp(lambda x: x[2], (3,))
+        self._testOp(lambda x: x[:], (3,))
+        self._testOp(lambda x: x[:,0], (3, 4))
+        self._testOp(lambda x: x[:,:2], (3, 4))
+        self._testOp(lambda x: x[:-2,2:2:2], (3, 4))
+        self._testOp(lambda x: x[:,np.newaxis] * x[np.newaxis,:], (4,))
+        self._testOp(lambda x: x[np.newaxis,:-2,2:2:2], (3, 4))
+        self._testOp(lambda x: x[:-2,np.newaxis,2:2:2], (3, 4))
 
 
 class _Transforms(_OpTest):
     def testTranspose(self):
-        self._testOp(lambda x : x.T, 2)
-        self._testOp(lambda x : x.T, (2, 4))
-        self._testOp(lambda x : x.T, (2, 3, 4))
-        self._testOp(lambda x : x.transpose([2,0,1]), (2, 3, 4))
+        self._testOp(lambda x: x.T, 2)
+        self._testOp(lambda x: x.T, (2, 4))
+        self._testOp(lambda x: x.T, (2, 3, 4))
+        self._testOp(lambda x: x.transpose([2,0,1]), (2, 3, 4))
 
     def testRoll(self):
-        self._testOp(lambda x : self.G.roll(x,1), (3, 4))
-        self._testOp(lambda x : self.G.roll(x,-2), (3, 4))
-        self._testOp(lambda x : self.G.roll(x,1,0), (3, 4))
-        self._testOp(lambda x : self.G.roll(x,-2,1), (3, 4))
+        self._testOp(lambda x: self.G.roll(x,1), (3, 4))
+        self._testOp(lambda x: self.G.roll(x,-2), (3, 4))
+        self._testOp(lambda x: self.G.roll(x,1,0), (3, 4))
+        self._testOp(lambda x: self.G.roll(x,-2,1), (3, 4))
 
 class _Misc(_OpTest):
     def testSizes(self):
@@ -661,12 +673,12 @@ class _Misc(_OpTest):
     def testPowerClass(self):
         class PowerClass(object):
             __array_priority__ = 10000000
-            __add__ = lambda self, a : 1
-            __rmul__ = lambda self, a : 2
-            __truediv__ = lambda self, a : 3
-            __rtruediv__ = lambda self, a : 4
-            __pow__ = lambda self, a : 5
-            __rpow__ = lambda self, a : 6
+            __add__ = lambda self, a: 1
+            __rmul__ = lambda self, a: 2
+            __truediv__ = lambda self, a: 3
+            __rtruediv__ = lambda self, a: 4
+            __pow__ = lambda self, a: 5
+            __rpow__ = lambda self, a: 6
 
         a = PowerClass()
         b = self.G.ones(3)
@@ -685,19 +697,19 @@ class _Adjoint(_OpTest):
         x = self.G.ones(3) * 2
         a = self.G.ones(3) * 5
 
-        f = psc_compile(lambda x : x * x)
+        f = psc_compile(lambda x: x * x)
         g = f.adjoint(a, x)
         self.assertAlmostEqual(0, np.linalg.norm((g - a * x * 2)._data))
 
-        f = psc_compile(lambda x : self.G.exp(x))
+        f = psc_compile(lambda x: self.G.exp(x))
         g = f.adjoint(a, x)
         self.assertAlmostEqual(0, np.linalg.norm((g - a * self.G.exp(x))._data))
 
 
 class _DoubleCompile(_OpTest):
     def testDC(self):
-        f = psc_compile(lambda x : x * x)
-        g = psc_compile(lambda x : f(x * x) ** 2)
+        f = psc_compile(lambda x: x * x)
+        g = psc_compile(lambda x: f(x * x) ** 2)
         x = g(self.G.ones(3))
         self.assertEqual(x.shape, (3,))
 
@@ -752,7 +764,7 @@ class _Euler(_OpTest):
 
         def dissipation(r, u, dc):
             # conservative, negative definite dissipation applied to r*d(ru)/dt
-            laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
+            laplace = lambda u: (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
             return laplace(dc * r * r * laplace(u))
 
         def rhs(w):
@@ -760,14 +772,18 @@ class _Euler(_OpTest):
             u, v = ru / r, rv / r
 
             mass = diffx(r * ru) + diffy(r * rv)
-            momentum_x = (diffx(ru*ru) + (r*ru) * diffx(u)) / 2.0 \
-                       + (diffy(rv*ru) + (r*rv) * diffy(u)) / 2.0 \
-                       + diffx(p)
-            momentum_y = (diffx(ru*rv) + (r*ru) * diffx(v)) / 2.0 \
-                       + (diffy(rv*rv) + (r*rv) * diffy(v)) / 2.0 \
-                       + diffy(p)
-            energy = gamma * (diffx(p * u) + diffy(p * v)) \
-                   - (gamma - 1) * (u * diffx(p) + v * diffy(p))
+            momentum_x = (
+                    (diffx(ru*ru) + (r*ru) * diffx(u)) / 2.0 +
+                    (diffy(rv*ru) + (r*rv) * diffy(u)) / 2.0
+                    ) + diffx(p)
+            momentum_y = (
+                    (diffx(ru*rv) + (r*ru) * diffx(v)) / 2.0 +
+                    (diffy(rv*rv) + (r*rv) * diffy(v)) / 2.0
+                    ) + diffy(p)
+            energy = (
+                    gamma * (diffx(p * u) + diffy(p * v)) -
+                    (gamma - 1) * (u * diffx(p) + v * diffy(p))
+                    )
 
             one = grid.ones(r.shape)
             dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
@@ -776,8 +792,10 @@ class _Euler(_OpTest):
 
             momentum_x += dissipation_x
             momentum_y += dissipation_y
-            energy += dissipation_p \
-                    - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
+            energy += (
+                    dissipation_p -
+                    (gamma - 1) * (u * dissipation_x + v * dissipation_y)
+                    )
 
             rhs_w = grid.zeros(w.shape)
             rhs_w[0] = 0.5 * mass / r

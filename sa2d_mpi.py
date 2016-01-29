@@ -144,12 +144,12 @@ class grid2d(object):
         '''
         commander = self._commander
         commander.set_custom_func('make_worker_variable',
-                lambda ZERO, x : x + ZERO.reshape(ZERO.shape + (1,) * x.ndim))
+                lambda ZERO, x: x + ZERO.reshape(ZERO.shape + (1,) * x.ndim))
         commander.set_custom_func('reshape',
-                lambda x, shape : x.reshape(x.shape[:2] + shape))
-        commander.set_custom_func('func_with_interior',
-                lambda func, x, args, kwargs : \
-                       func(x[1:-1,1:-1], *args, **kwargs))
+                lambda x, shape: x.reshape(x.shape[:2] + shape))
+        commander.set_custom_func('func_with_interior', (
+                lambda func, x, args, kwargs:
+                       func(x[1:-1,1:-1], *args, **kwargs)))
 
     @property
     def nx(self):
@@ -485,7 +485,7 @@ class grid2d(object):
         '''
         assert _is_like_sa(a) and a.grid == self
         sum_a = self._commander.func('func_with_interior',
-                (np.sum, a._var, (), {'axis' : (0,1)}))
+                (np.sum, a._var, (), {'axis': (0,1)}))
         sum_a = np.sum(sum_a, axis=0)
         assert sum_a.shape == a.shape
         return sum_a
@@ -505,7 +505,7 @@ class grid2d(object):
         '''
         assert _is_like_sa(a) and a.grid is self
         mean_a = self._commander.func('func_with_interior',
-                (np.mean, a._var, (), {'axis' : (0,1)}))
+                (np.mean, a._var, (), {'axis': (0,1)}))
         mean_a = np.mean(mean_a, axis=0)
         assert mean_a.shape == a.shape
         return mean_a
@@ -515,7 +515,7 @@ class grid2d(object):
         assert len(data_tuple) == self._nxProc * self._nyProc
         data = []
         for ix in range(self._nxProc):
-            data_ix = data_tuple[ix * self._nyProc : (ix + 1) * self._nyProc]
+            data_ix = data_tuple[ix * self._nyProc: (ix + 1) * self._nyProc]
             data.append(np.concatenate(data_ix, axis=1))
         return np.concatenate(data, axis=0)
 
@@ -917,7 +917,7 @@ class CompareSerialMPI(unittest.TestCase):
             def dissipation(r, u, dc):
                 # conservative, negative definite dissipation
                 # applied to r*d(ru)/dt
-                laplace = lambda u : (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
+                laplace = lambda u: (u.x_p + u.x_m + u.y_p + u.y_m) * 0.25 - u
                 return laplace(dc * r * r * laplace(u))
 
             def rhs(w):
