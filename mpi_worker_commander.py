@@ -1,4 +1,4 @@
-from __future__ import division
+from __future__ import division, print_function
 from __future__ import unicode_literals
 import sys
 import numbers
@@ -126,12 +126,9 @@ class MPI_Worker(object):
     # -------------------------------------------------------------------- #
 
     def _update_result(self, result, result_var):
-        if isinstance(result_var, tuple):
-            assert isinstance(result, tuple) and len(result) == len(result_var)
-            for res, var in zip(result, result_var):
-                self._update_result(res, var)
-        elif result_var is not None:
-            assert is_worker_variable(result_var)
+        if result_var is None:
+            return result
+        elif is_worker_variable(result_var):
             assert isinstance(result, np.ndarray)
             assert result.ndim >= 2
             ni, nj = self.i.shape[0] - 2, self.i.shape[1] - 2
@@ -140,7 +137,8 @@ class MPI_Worker(object):
                 result = self._update_result_neighbor(result)
             self.variables[result_var.key] = result
         else:
-            return result
+            for res, var in zip(result, result_var):
+                self._update_result(res, var)
 
     # -------------------------------------------------------------------- #
 

@@ -364,6 +364,8 @@ class _TestOperators(unittest.TestCase):
         a = np.ones([4,5])
         f = compile(laplacian, a)
         self.assertEqual(f(a).shape, (2,3))
+        a = np.ones([6,7])
+        self.assertEqual(f(a).shape, (4,5))
         self.assertAlmostEqual(abs(f(a)).max(), 0)
 
     def testNonlinear(self):
@@ -373,6 +375,8 @@ class _TestOperators(unittest.TestCase):
         a = np.ones([4,5])
         f = compile(nlLaplacian, a)
         self.assertEqual(f(a).shape, (2,3))
+        a = np.ones([6,7])
+        self.assertEqual(f(a).shape, (4,5))
         self.assertAlmostEqual(abs(f(a)).max(), 0)
 
     def testGradient(self):

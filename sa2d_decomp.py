@@ -657,14 +657,27 @@ class Stage(object):
 
     # --------------------------------------------------------------------- #
 
+    def _has_nbr(self, out):
+        return out.createStage < self.k or out.hasNeighbor
+
+    @property
+    def output_size_no_nbr(self):
+        return builtins.sum(
+                out.size for out in self.outputs if not self._has_nbr(out))
+    @property
+    def output_size_has_nbr(self):
+        return builtins.sum(
+                out.size for out in self.outputs if self._has_nbr(out))
+
+    def _is_old_nbr(self, inp):
+        return (inp.createStage < self.k - 1 or inp.hasNeighbor)
+
     def unstack_input(self, input_new_nbr, input_old_nbr):
-        old_nbr = lambda inp: (inp.createStage < self.k - 1 or
-                               inp.hasNeighbor)
         input_objects = [None] * len(self.inputs)
 
         ptr = 0
         for i, inp in enumerate(self.inputs):
-            if not old_nbr(inp):
+            if not self._is_old_nbr(inp):
                 inp_obj = input_new_nbr[ptr : ptr + inp.size]
                 ptr += inp.size
                 input_objects[i] = inp_obj.reshape(inp.shape)
@@ -672,7 +685,7 @@ class Stage(object):
 
         ptr = 0
         for i, inp in enumerate(self.inputs):
-            if old_nbr(inp):
+            if self._is_old_nbr(inp):
                 inp_obj = input_old_nbr[ptr : ptr + inp.size]
                 ptr += inp.size
                 input_objects[i] = inp_obj.reshape(inp.shape)
@@ -682,32 +695,25 @@ class Stage(object):
 
     def stack_output(self, output_objects):
         context = _infer_context(output_objects[0])
-        has_nbr = lambda out: out.createStage < self.k or out.hasNeighbor
 
-        size_no_nbr = builtins.sum(
-                out.size for out in self.outputs if not has_nbr(out)
-                )
-        output_no_nbr = context.zeros(size_no_nbr)
+        output_no_nbr = context.zeros(self.output_size_no_nbr)
         ptr = 0
         for out, out_obj in zip(self.outputs, output_objects):
             assert out.shape == out_obj.shape
-            if not has_nbr(out):
+            if not self._has_nbr(out):
                 out_obj = out_obj.reshape(out.size)
                 output_no_nbr[ptr : ptr + out.size] = out_obj
                 ptr += out.size
         assert output_no_nbr.size == ptr
 
-        size_has_nbr = builtins.sum(
-                out.size for out in self.outputs if has_nbr(out)
-                )
-        if size_has_nbr == 0:
+        if self.output_size_has_nbr == 0:
             return output_no_nbr
 
-        output_has_nbr = context.zeros(size_has_nbr)
+        output_has_nbr = context.zeros(self.output_size_has_nbr)
         ptr = 0
         for out, out_obj in zip(self.outputs, output_objects):
             assert out.shape == out_obj.shape
-            if has_nbr(out):
+            if self._has_nbr(out):
                 out_obj = out_obj.reshape(out.size)
                 output_has_nbr[ptr : ptr + out.size] = out_obj
                 ptr += out.size
