@@ -13,13 +13,16 @@ import doctest
 import unittest
 import operator
 import time
+
 import dill
 import numpy as np
 import theano
 import theano.tensor as T
-import mpi_worker_commander as commander
 
-import sa2d_decomp
+import pascal.mpi_worker_commander as commander
+
+import pascal.sa2d_decomp
+from .sa2d_decomp import _infer_context
 
 #==============================================================================#
 
