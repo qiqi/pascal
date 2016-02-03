@@ -6,10 +6,11 @@ import time
 
 import numpy as np
 
-import pascal.sa2d_decomp
-import pascal.sa2d_theano
-import pascal.mpi_worker_commander as commander
-from .sa2d_mpi import grid2d, stencil_array, _is_like_sa, _infer_context
+from pascal import mpi_worker_commander as commander
+from pascal import sa2d_decomp
+from pascal import sa2d_theano
+from pascal import sa2d_mpi
+from pascal.sa2d_mpi import grid2d, stencil_array, _is_like_sa, infer_context
 
 
 def compile_stages(stages, inputs):
@@ -176,7 +177,7 @@ if __name__ == '__main__':
         energy = gamma * (diffx(p * u) + diffy(p * v)) \
                - (gamma - 1) * (u * diffx(p) + v * diffy(p))
 
-        one = _infer_context(w).ones(r.shape)
+        one = infer_context(w).ones(r.shape)
         dissipation_x = dissipation(r, u, DISS_COEFF) * c0 / dx
         dissipation_y = dissipation(r, v, DISS_COEFF) * c0 / dy
         dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
@@ -186,7 +187,7 @@ if __name__ == '__main__':
         energy += dissipation_p \
                 - (gamma - 1) * (u * dissipation_x + v * dissipation_y)
 
-        rhs_w = _infer_context(w).zeros(w.shape)
+        rhs_w = infer_context(w).zeros(w.shape)
         rhs_w[0] = 0.5 * mass / r
         rhs_w[1] = momentum_x / r
         rhs_w[2] = momentum_y / r
