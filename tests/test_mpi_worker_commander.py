@@ -48,6 +48,7 @@ class TestPassingParamters(unittest.TestCase):
         z34 = WorkerVariable()
         def make_worker_variable(z, x):
             return x + z.reshape(z.shape + (1,) * x.ndim)
+        print(dill.dumps(make_worker_variable))
         comm.set_custom_func('make_worker_variable', make_worker_variable)
         comm.func('make_worker_variable', (ZERO, np.zeros([3,4])),
                 result_var=z34)

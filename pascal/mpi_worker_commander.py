@@ -8,6 +8,7 @@ from __future__ import division, print_function
 from __future__ import unicode_literals
 import os
 import sys
+import types
 import numbers
 import doctest
 import unittest
@@ -78,9 +79,10 @@ class MPI_Worker(object):
     # -------------------------------------------------------------------- #
 
     def set_custom_func(self, name, func):
-        print('SET_CUSTOM_FUNC', name)
-        self.custom_funcs[name] = dill.loads(func)
-        print('SET_CUSTOM_FUNC', self.custom_funcs[name])
+        func = dill.loads(func)
+        if isinstance(func, types.CodeType):
+            func = types.FunctionType(func, globals(), name)
+        self.custom_funcs[name] = func
 
     # -------------------------------------------------------------------- #
 
@@ -286,6 +288,8 @@ class MPI_Commander(object):
     # -------------------------------------------------------------------- #
 
     def set_custom_func(self, name, func):
+        if isinstance(func, types.FunctionType):
+            func = func.__code__
         args = (name, dill.dumps(func))
         self._broadcast_to_workers(('set_custom_func', args, False))
 
