@@ -1,6 +1,5 @@
 numpy >= 1.10
 theano >= 0.7
-scipy >= 0.16
 PuLP >= 1.6
 dill >= 0.2
 mpi4py >= 2.0

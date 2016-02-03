@@ -19,7 +19,6 @@ import collections
 import numpy as np
 import theano
 import theano.tensor as T
-import scipy.io
 import pulp
 
 GLOBAL_MAX_STAGES = -128
@@ -554,10 +553,7 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
-    def _solve_linear_program(self, verbose, save_mat=None):
-        if save_mat:
-            scipy.io.savemat(save_mat, self._linear_program._asdict())
-
+    def _solve_linear_program(self, verbose):
         if verbose:
             lp = self._linear_program
             lpSize = len(lp.c), len(lp.b_eq) + len(lp.b_le)
@@ -591,11 +587,11 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
-    def __init__(self, func, inputs, verbose=True, save_mat=None):
+    def __init__(self, func, inputs, verbose=True):
         self._build_computational_graph(func, inputs)
         self._assign_id_to_values()
         self._build_linear_program()
-        self._solve_linear_program(verbose, save_mat)
+        self._solve_linear_program(verbose)
         self._assign_lp_results_to_vars()
 
         self.stages = [Stage(self.values, self.inputs, self.outputs,
@@ -1239,7 +1235,7 @@ class _TestEuler(unittest.TestCase):
             dw3 = -dt * rhs(w + dw2)
             return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
-        stages = decompose(step, stencil_array((4,)), save_mat='euler.mat')
+        stages = decompose(step, stencil_array((4,)))
         self.assertEqual(len(stages), 8)
 
         w0 = G.zeros(4) + np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
