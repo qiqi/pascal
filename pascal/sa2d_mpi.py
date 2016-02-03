@@ -4,8 +4,6 @@
 #                                                                              #
 ################################################################################
 
-from __future__ import division, print_function
-from __future__ import unicode_literals, absolute_import
 import sys
 import numbers
 import weakref

@@ -4,8 +4,6 @@
 #                                                                              #
 ################################################################################
 
-from __future__ import division, print_function
-from __future__ import unicode_literals
 import os
 import sys
 import types
@@ -79,6 +77,7 @@ class MPI_Worker(object):
     # -------------------------------------------------------------------- #
 
     def set_custom_func(self, name, func):
+        name = str(name)
         func = dill.loads(func)
         if isinstance(func, types.CodeType):
             func = types.FunctionType(func, globals(), name)
@@ -87,7 +86,7 @@ class MPI_Worker(object):
     # -------------------------------------------------------------------- #
 
     def func(self, func, args, kwargs, result_var):
-        if isinstance(func, type('')):
+        if isinstance(func, str):
             func = self.custom_funcs[func]
         elif isinstance(func, bytes):
             func = dill.loads(func)

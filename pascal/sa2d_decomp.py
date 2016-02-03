@@ -4,14 +4,8 @@
 #                                                                              #
 ################################################################################
 
-from __future__ import division, print_function
-
-try:
-    import builtins
-except:
-    import __builtin__ as builtins
-
 import copy as copymodule
+import builtins
 import sys
 import pickle
 import unittest
