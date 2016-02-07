@@ -1,25 +1,39 @@
-# G = grid2d(128, 64, 2)
-# f = G.zeros()
-# u0 = G.ones() + G.sin(G.i * np.pi / G.nx * 2)
-# 
-# def heat(u):
-#     dx = 0.1
-#     return (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2 + f
-# 
-# def heatMidpoint(u):
-#     dt = 0.01
-#     uh = u + 0.5 * dt * heat(u)
-#     return u + dt * heat(uh)
-# 
-# s = Stages(heatMidpoint, u0)
-# t0 = time.time()
-# n = 1000
-# for i in range(n):
-#     u0 = s(u0)
-# usum = G.reduce_sum(u0)
-# print((time.time() - t0) / n * 1E6)
+import os
+import sys
+my_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(my_path, '..'))
 
-if __name__ == '__main__':
+from pascal.sa2d_classic import *
+
+def test_heat_midpoint():
+    G = grid2d(128, 64, 2)
+    f = G.zeros()
+    u0 = G.ones() + G.sin(G.i * np.pi / G.nx * 2)
+
+    def heat(u):
+        dx = 0.1
+        return (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2 + f
+
+    def heatMidpoint(u):
+        dt = 0.01
+        uh = u + 0.5 * dt * heat(u)
+        return u + dt * heat(uh)
+
+    s = Stages(heatMidpoint, u0)
+    t0 = time.time()
+    n = 100
+    for i in range(n):
+        u0 = s(u0)
+    usum = G.reduce_sum(u0)
+
+    u0 = G.ones() + G.sin(G.i * np.pi / G.nx * 2)
+    for i in range(n):
+        u0 = heatMidpoint(u0)
+    usum1 = G.reduce_sum(u0)
+    assert abs(usum - usum1).max() < 1E-12
+
+
+def test_euler_tunnel():
     DISS_COEFF = 0.0025
     gamma, R = 1.4, 287.
     T0, p0, M0 = 300., 101325., 0.25
@@ -34,14 +48,6 @@ if __name__ == '__main__':
     dt = dx / c0 * 0.5
 
     Ni, Nj = 128, 64
-    G = grid2d(Ni, Nj, 2)
-
-    x = (G.i + 0.5) * dx - 0.2 * Lx
-    y = (G.j + 0.5) * dy - 0.5 * Ly
-
-    obstacle = G.exp(-((x**2 + y**2) / 1)**64)
-    fan = 2 * G.cos((x / Lx + 0.2) * np.pi)**64
-
     def diffx(w):
         return (w.x_p - w.x_m) / (2 * dx)
 
@@ -95,11 +101,26 @@ if __name__ == '__main__':
         dw3 = -dt * rhs(w + dw2)
         return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
+    G = grid2d(Ni, Nj, 2)
+
+    x = (G.i + 0.5) * dx - 0.2 * Lx
+    y = (G.j + 0.5) * dy - 0.5 * Ly
+
+    obstacle = G.exp(-((x**2 + y**2) / 1)**64)
+    fan = 2 * G.cos((x / Lx + 0.2) * np.pi)**64
+
+    n = 1
+
     w = G.zeros() + w0
     s = Stages(step, w)
-    t0 = time.time()
-    n = 1000
     for i in range(n):
         w = s(w)
-    wsum = G.reduce_sum(w)
-    print((time.time() - t0) / n * 1E6)
+    # wsum = G.reduce_sum(w)
+
+    # w = G.zeros() + w0
+    # for i in range(n):
+    #     w = step(w)
+    # wsum1 = G.reduce_sum(w)
+    # assert abs(wsum - wsum1).max() < 1E-12
+
+# test_euler_tunnel()

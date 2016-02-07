@@ -3,6 +3,9 @@ import sys
 my_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(my_path, '..'))
 
+import theano
+import theano.tensor as T
+
 from pascal.mpi_worker_commander import *
 
 # ============================================================================ #
@@ -97,6 +100,21 @@ class TestFunctions(unittest.TestCase):
         sin_j_max = comm.func(np.max, (sin_j,))
         self.assertAlmostEqual(sin_j_max[0], 0.90929742682568171)
         self.assertAlmostEqual(sin_j_max[1], 0.98935824662338179)
+
+
+def test_theano():
+    a = T.dmatrix()
+    f = theano.function([a], a + 1)
+    comm = MPI_Commander(8, 8, 2, 2)
+    comm.set_custom_func('add_one', f)
+    i = WorkerVariable('i')
+    ip1 = WorkerVariable()
+    comm.func('add_one', (i,), result_var=ip1)
+    ip1_sum = comm.func(np.sum, (ip1,))
+    assert ip1_sum[0] == 90
+    assert ip1_sum[1] == 90
+    assert ip1_sum[2] == 234
+    assert ip1_sum[3] == 234
 
 ################################################################################
 ################################################################################

@@ -253,14 +253,16 @@ class grid2d(object):
         '''
         An array containing i-index of a grid.
         '''
-        return self._array(commander.I, ())
+        res = self._func(np.copy, (commander.I,))
+        return self._array(res, ())
 
     @property
     def j(self):
         '''
         An array containing j-index of a grid.
         '''
-        return self._array(commander.J, ())
+        res = self._func(np.copy, (commander.J,))
+        return self._array(res, ())
 
     # -------------------------------------------------------------------- #
     #                        array transformations                         #
@@ -271,7 +273,8 @@ class grid2d(object):
         Calculate the logorithm of all elements in the input array.
         '''
         assert _is_like_sa(x) and x.grid is self
-        res = self._func(dill.dumps(np.log), (x._var,))
+        log = dill.dumps(np.log, protocol=dill.HIGHEST_PROTOCOL)
+        res = self._func(log, (x._var,))
         return self._array(res, x.shape)
 
     def exp(self, x):
@@ -279,7 +282,8 @@ class grid2d(object):
         Calculate the exponential of all elements in the input array.
         '''
         assert _is_like_sa(x) and x.grid is self
-        res = self._func(dill.dumps(np.exp), (x._var,))
+        exp = dill.dumps(np.exp, protocol=dill.HIGHEST_PROTOCOL)
+        res = self._func(exp, (x._var,))
         return self._array(res, x.shape)
 
     def sin(self, x):
@@ -287,7 +291,8 @@ class grid2d(object):
         Sine element-wise.
         '''
         assert _is_like_sa(x) and x.grid is self
-        res = self._func(dill.dumps(np.sin), (x._var,))
+        sin = dill.dumps(np.sin, protocol=dill.HIGHEST_PROTOCOL)
+        res = self._func(sin, (x._var,))
         return self._array(res, x.shape)
 
     def cos(self, x):
@@ -295,7 +300,8 @@ class grid2d(object):
         Cosine element-wise.
         '''
         assert _is_like_sa(x) and x.grid is self
-        res = self._func(dill.dumps(np.cos), (x._var,))
+        cos = dill.dumps(np.cos, protocol=dill.HIGHEST_PROTOCOL)
+        res = self._func(cos, (x._var,))
         return self._array(res, x.shape)
 
     def sum(self, x, axis=None):

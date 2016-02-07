@@ -12,12 +12,15 @@ import doctest
 import unittest
 import operator
 import traceback
-
 import dill
+
 import numpy as np
 import theano
 import theano.tensor as T
 from mpi4py import MPI
+
+
+sys.setrecursionlimit(50000)  # for pickling big theano functions
 
 
 #==============================================================================#
@@ -289,7 +292,7 @@ class MPI_Commander(object):
     def set_custom_func(self, name, func):
         if isinstance(func, types.FunctionType):
             func = func.__code__
-        args = (name, dill.dumps(func))
+        args = (name, dill.dumps(func, protocol=dill.HIGHEST_PROTOCOL))
         self._broadcast_to_workers(('set_custom_func', args, False))
 
     # -------------------------------------------------------------------- #
