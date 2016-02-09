@@ -19,9 +19,9 @@ import theano
 import theano.tensor as T
 from mpi4py import MPI
 
-
 sys.setrecursionlimit(50000)  # for pickling big theano functions
 
+_DEBUG_MODE_ = False # force all calls to return to commander
 
 #==============================================================================#
 #                                                                              #
@@ -97,10 +97,10 @@ class MPI_Worker(object):
         kwargs = self._substitute_kwargs(kwargs)
         try:
             result = func(*args, **kwargs)
+            return self._update_result(result, result_var)
         except Exception as e:
             raise RuntimeError('Error executing function {0} with args {1} ' \
                     'and kwargs {2}'.format(func, args, kwargs))
-        return self._update_result(result, result_var)
 
     # -------------------------------------------------------------------- #
 
@@ -157,30 +157,31 @@ class MPI_Worker(object):
     # -------------------------------------------------------------------- #
 
     def _update_result_neighbor(self, result):
-        x_m, x_p, y_m, y_p = self.neighbor_ranks
+        i_m, i_p, j_m, j_p = self.neighbor_ranks
+        i_fwd, i_bwd, j_fwd, j_bwd = 0, 1, 2, 3
 
-        MPI.COMM_WORLD.Isend(np.array(result[0,:], order='C'), x_m)
-        MPI.COMM_WORLD.Isend(np.array(result[-1,:], order='C'), x_p)
-        MPI.COMM_WORLD.Isend(np.array(result[:,0], order='C'), y_m)
-        MPI.COMM_WORLD.Isend(np.array(result[:,-1], order='C'), y_p)
+        MPI.COMM_WORLD.Isend(np.array(result[0,:], order='C'), i_m, i_bwd)
+        MPI.COMM_WORLD.Isend(np.array(result[-1,:], order='C'), i_p, i_fwd)
+        MPI.COMM_WORLD.Isend(np.array(result[:,0], order='C'), j_m, j_bwd)
+        MPI.COMM_WORLD.Isend(np.array(result[:,-1], order='C'), j_p, j_fwd)
 
-        x_buffer = np.empty((2,) + result.shape[1:])
-        y_buffer = np.empty((2, result.shape[0]) + result.shape[2:])
+        i_buffer = np.empty((2,) + result.shape[1:])
+        j_buffer = np.empty((2, result.shape[0]) + result.shape[2:])
 
-        rq_x_m = MPI.COMM_WORLD.Irecv(x_buffer[0], x_m)
-        rq_x_p = MPI.COMM_WORLD.Irecv(x_buffer[1], x_p)
-        rq_y_m = MPI.COMM_WORLD.Irecv(y_buffer[0], y_m)
-        rq_y_p = MPI.COMM_WORLD.Irecv(y_buffer[1], y_p)
+        rq_i_m = MPI.COMM_WORLD.Irecv(i_buffer[0], i_m, i_fwd)
+        rq_i_p = MPI.COMM_WORLD.Irecv(i_buffer[1], i_p, i_bwd)
+        rq_j_m = MPI.COMM_WORLD.Irecv(j_buffer[0], j_m, j_fwd)
+        rq_j_p = MPI.COMM_WORLD.Irecv(j_buffer[1], j_p, j_bwd)
 
         ni, nj = result.shape[:2]
         full_result = np.ones((ni + 2, nj + 2) + result.shape[2:])
         full_result[1:-1,1:-1] = result
 
-        MPI.Request.Waitall([rq_x_m, rq_x_p, rq_y_m, rq_y_p])
-        full_result[0,1:-1] = x_buffer[0]
-        full_result[-1,1:-1] = x_buffer[-1]
-        full_result[1:-1,0] = y_buffer[0]
-        full_result[1:-1,-1] = y_buffer[-1]
+        MPI.Request.Waitall([rq_i_m, rq_i_p, rq_j_m, rq_j_p])
+        full_result[0,1:-1] = i_buffer[0]
+        full_result[-1,1:-1] = i_buffer[1]
+        full_result[1:-1,0] = j_buffer[0]
+        full_result[1:-1,-1] = j_buffer[1]
         return full_result
 
 
@@ -265,11 +266,11 @@ class MPI_Commander(object):
         for i, iRange in enumerate(self.iRanges):
             for j, jRange in enumerate(self.jRanges):
                 rank = i * njProc + j
-                rank_x_m = (i + niProc - 1) % niProc * njProc + j
-                rank_x_p = (i + 1) % niProc * njProc + j
-                rank_y_m = i * njProc + (j + njProc - 1) % njProc
-                rank_y_p = i * njProc + (j + 1) % njProc
-                neighbor_ranks = (rank_x_m, rank_x_p, rank_y_m, rank_y_p)
+                rank_i_m = (i + niProc - 1) % niProc * njProc + j
+                rank_i_p = (i + 1) % niProc * njProc + j
+                rank_j_m = i * njProc + (j + njProc - 1) % njProc
+                rank_j_p = i * njProc + (j + 1) % njProc
+                neighbor_ranks = (rank_i_m, rank_i_p, rank_j_m, rank_j_p)
 
                 first_message = (iRange, jRange, neighbor_ranks)
                 self.comm.send(first_message, rank)
@@ -300,29 +301,35 @@ class MPI_Commander(object):
     def func(self, func, args=(), kwargs={},
              result_var=None, return_result=True):
         args = (func, args, kwargs, result_var)
-        self._broadcast_to_workers(('func', args, return_result))
-        if return_result:
-            return self._gather_from_workers()
+        ret_res = return_result or _DEBUG_MODE_
+        self._broadcast_to_workers(('func', args, ret_res))
+        if ret_res:
+            res = self._gather_from_workers()
+            return res if return_result else None
 
     # -------------------------------------------------------------------- #
 
     def func_nonuniform_args(self, func, nonuniform_args=(), kwargs={},
              result_var=None, return_result=True):
         assert len(nonuniform_args) == len(self.iRanges) * len(self.jRanges)
-        data = tuple(('func', (func, args, kwargs, result_var), return_result) \
+        ret_res = return_result or _DEBUG_MODE_
+        data = tuple(('func', (func, args, kwargs, result_var), ret_res) \
                      for args in nonuniform_args)
         self._scatter_to_workers(data)
-        if return_result:
-            return self._gather_from_workers()
+        if ret_res:
+            res = self._gather_from_workers()
+            return res if return_result else None
 
     # -------------------------------------------------------------------- #
 
     def method(self, variable, method_name, args=(), kwargs={},
                result_var=None, return_result=True):
         args = (variable, method_name, args, kwargs, result_var)
-        self._broadcast_to_workers(('method', args, return_result))
-        if return_result:
-            return self._gather_from_workers()
+        ret_res = return_result or _DEBUG_MODE_
+        self._broadcast_to_workers(('method', args, ret_res))
+        if ret_res:
+            res = self._gather_from_workers()
+            return res if return_result else None
 
     # -------------------------------------------------------------------- #
 

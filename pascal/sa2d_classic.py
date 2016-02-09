@@ -7,6 +7,7 @@
 import pickle
 import uuid
 import time
+import copy
 
 import numpy as np
 
@@ -61,8 +62,11 @@ class Stages(object):
 
         decomp_inputs = tuple(sa2d_decomp.stencil_array(inp.shape)
                               for inp in mpi_inputs)
+        t0 = time.time()
         self.stages = sa2d_decomp.decompose(func, decomp_inputs)
+        print('decompose takes ', time.time() - t0)
         theano_stages = compile_stages(self.stages, mpi_inputs)
+        print('compile takes ', time.time() - t0)
 
         common_name = str(uuid.uuid1())
         n_stages = len(theano_stages)
@@ -87,7 +91,7 @@ class Stages(object):
                     stage_in.append(s._reference._var)
                 else:
                     assert s is sa2d_decomp.G_ZERO
-                    stage_in.append(self.G_ZERO)
+                    stage_in.append(self.G_ZERO._var)
 
             if k < n_stages - 1:
                 out_shapes = [(stage.output_size_no_nbr,)]
@@ -96,12 +100,14 @@ class Stages(object):
             else:
                 out_shapes = [out.shape for out in stage.outputs]
 
+            stage_out_previous = stage_out if k > 0 else []
             stage_out, outputs = [], []
             for shape in out_shapes:
                 var = commander.WorkerVariable()
-                out = self.grid._array(var, shape)
                 stage_out.append(var)
-                outputs.append(out)
+                if k == n_stages - 1:
+                    out = self.grid._array(var, shape)
+                    outputs.append(out)
 
             self.grid._commander.func(
                     stage_name,
@@ -109,8 +115,14 @@ class Stages(object):
                     result_var=stage_out,
                     return_result=False)
 
+            # delete outputs of previous stage
+            for var in stage_out_previous:
+                self.grid._commander.delete_variable(var)
+
             if k < len(self.stages) - 1:
-                stage_in = stage_out
+                stage_in = copy.copy(stage_out)
+                for var in stage_in:
+                    if hasattr(var, '_reference'): del var._reference
 
         if len(outputs) == 1:
             return outputs[0]

@@ -7,6 +7,7 @@
 import copy as copymodule
 import builtins
 import sys
+import time
 import pickle
 import unittest
 import operator
@@ -534,7 +535,7 @@ class decompose(object):
             j, = A_eq[i].nonzero()
             lp += builtins.sum(A_eq[i, jj] * x[jj] for jj in j) == b_eq[i]
 
-        s = pulp.GLPK(mip=0, msg=int(verbose))
+        s = pulp.GLPK(mip=0, msg=int(verbose > 1))
         s.actualSolve(lp)
 
         x = [pulp.value(xi) for xi in x]
@@ -557,14 +558,16 @@ class decompose(object):
             print('\t{0} values'.format(len(self.values)))
             print('\tsolving {0}x{1} linear program'.format(*lpSize))
             sys.stdout.flush()
+            t0 = time.time()
 
-        self._solve_linear_program_glpk(verbose>1)
+        self._solve_linear_program_glpk(verbose)
 
         if verbose:
             res = self._linear_program_result
             print('Decomposed into {0} atomic stages'.format(res.x[-1] + 1))
             print('\tobjective function = {0}'.format(res.obj))
             print('\tstatus: ' + res.status)
+            print('\ttime: {0:f}'.format(time.time() - t0))
             sys.stdout.flush()
 
     # --------------------------------------------------------------------- #

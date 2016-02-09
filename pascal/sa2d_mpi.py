@@ -115,10 +115,13 @@ class grid2d(object):
 
         self._commander = commander.MPI_Commander(
                 self._nx, self._ny, self._nxProc, self._nyProc)
-
         self._define_custom_functions()
-
         self._temp_vars = {}
+
+        self._make_i_j_zero()
+
+    def _make_i_j_zero(self):
+        pass
 
     def delete(self):
         self._commander.dismiss()
