@@ -13,7 +13,7 @@ class _TestOperators(unittest.TestCase):
             zz = (z.x_p + z.x_m + z.y_p + z.y_m - 4 * z) / 4
             return (a.x_p + a.x_m + a.y_p + a.y_m - 4 * a) / 4 + zz
         a = np.ones([4,5])
-        f = compile(laplacian, a)
+        f = compile_function(laplacian, a)
         self.assertEqual(f(a).shape, (2,3))
         a = np.ones([6,7])
         self.assertEqual(f(a).shape, (4,5))
@@ -24,7 +24,7 @@ class _TestOperators(unittest.TestCase):
             lapla = -4 * a + a.x_p + a.x_m + a.y_p + a.y_m
             return lapla * exp(a) / sin(a) * cos(a)
         a = np.ones([4,5])
-        f = compile(nlLaplacian, a)
+        f = compile_function(nlLaplacian, a)
         self.assertEqual(f(a).shape, (2,3))
         a = np.ones([6,7])
         self.assertEqual(f(a).shape, (4,5))
@@ -35,7 +35,7 @@ class _TestOperators(unittest.TestCase):
             return (a.x_p - a.x_m) / 2, (a.y_p - a.y_m) / 2
         a = np.outer(np.ones(4), np.arange(5) * 2) \
           + np.outer(np.arange(4), np.ones(5)) + 1
-        f = compile(grad, a)
+        f = compile_function(grad, a)
         ax, ay = f(a)
         self.assertEqual(ax.shape, (2,3))
         self.assertEqual(ay.shape, (2,3))
@@ -48,7 +48,7 @@ class _TestOperators(unittest.TestCase):
             return (vx.x_p - vx.x_m) / 2 + (vy.y_p - vy.y_m) / 2
         v = [np.outer(np.arange(4) * 3, np.ones(5)),
              np.outer(np.ones(4), np.arange(5) * 2)]
-        f = compile(div, v)
+        f = compile_function(div, v)
         vDiv = f(*v)
         self.assertEqual(vDiv.shape, (2,3))
         self.assertAlmostEqual(abs(vDiv - 5).max(), 0)
@@ -62,13 +62,13 @@ class _TestOperators(unittest.TestCase):
             f = np.ones([2,1,6]) + a - np.zeros([1,2,5,1])
             return -d
         a = np.ones([3,4,5,6])
-        f = compile(arb, a)
+        f = compile_function(arb, a)
         self.assertEqual(f(a).shape, (1,2,5,6))
 
     def testNoArg(self):
         def func():
             return -ones([2,3,4]) * 123
-        f = compile(func)
+        f = compile_function(func)
         self.assertEqual(f().shape, (1,1,2,3,4))
         self.assertAlmostEqual(abs(f() + 123).max(), 0)
 
@@ -86,7 +86,7 @@ class _TestIJ(unittest.TestCase):
             return (a.x_p + a.x_m + a.y_p + a.y_m - 4 * a) / 4 * (i + j)
         a = np.ones([4,5])
         i, j = self.ij_np(0,a.shape[0],0,a.shape[1])
-        f = compile(laplacian, (a, i, j))
+        f = compile_function(laplacian, (a, i, j))
         fa = f(a, i, j)
         self.assertEqual(fa.shape, (2,3))
         self.assertAlmostEqual(abs(fa).max(), 0)
@@ -97,7 +97,7 @@ class _TestIJ(unittest.TestCase):
             x, y = i * 0.1, j * 0.2
             return y.x_p - y.x_m + x.y_p - x.y_m
         i, j = self.ij_np(-1,3,-1,5)
-        f = compile(divYX, (i, j))
+        f = compile_function(divYX, (i, j))
         fa = f(i, j)
         self.assertEqual(fa.shape, (2,4))
         self.assertAlmostEqual(abs(fa).max(), 0)
@@ -109,7 +109,7 @@ class _TestTransforms(unittest.TestCase):
         def size_a(a):
             return ones(()) * a.size
         a = np.ones([4,5,2,3])
-        f = compile(size_a, a)
+        f = compile_function(size_a, a)
         fa = f(a)
         self.assertEqual(fa.shape, (1,1))
         self.assertAlmostEqual(abs(fa - 6).max(), 0)
@@ -118,7 +118,7 @@ class _TestTransforms(unittest.TestCase):
         def len_a(a):
             return zeros(()) + len(a)
         a = np.ones([4,5,2,3])
-        f = compile(len_a, a)
+        f = compile_function(len_a, a)
         fa = f(a)
         self.assertEqual(fa.shape, (1,1))
         self.assertAlmostEqual(abs(fa - 2).max(), 0)
@@ -127,7 +127,7 @@ class _TestTransforms(unittest.TestCase):
         def xtm1(a):
             return a.T - 1
         a = np.ones([4,5,2,3])
-        f = compile(xtm1, a)
+        f = compile_function(xtm1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (4,5,3,2))
         self.assertAlmostEqual(abs(fa).max(), 0)
@@ -144,7 +144,7 @@ class _TestTransforms(unittest.TestCase):
         def xtm1(a):
             return a.transpose([2,3,1,0]) - 1
         a = np.ones([2,3,4,5,6,7])
-        f = compile(xtm1, a)
+        f = compile_function(xtm1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (2,3,6,7,5,4))
         self.assertAlmostEqual(abs(fa).max(), 0)
@@ -160,7 +160,7 @@ class _TestTransforms(unittest.TestCase):
         def xrm1(a):
             return a.reshape([3,-1]) - 1
         a = np.ones([4,5,2,3,4]) + np.arange(4)
-        f = compile(xrm1, a)
+        f = compile_function(xrm1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (4,5,3,8))
         for i in range(4):
@@ -171,7 +171,7 @@ class _TestTransforms(unittest.TestCase):
         def xrm1(a):
             return a.reshape(())
         a = np.ones([4,5,1])
-        f = compile(xrm1, a)
+        f = compile_function(xrm1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (4,5))
         self.assertAlmostEqual(abs(fa - 1).max(), 0)
@@ -180,7 +180,7 @@ class _TestTransforms(unittest.TestCase):
         def xrm1(a):
             return roll(a, 1) - 1
         a = np.ones([4,5,2,3]) + np.arange(2)[:,np.newaxis]
-        f = compile(xrm1, a)
+        f = compile_function(xrm1, a)
         fa = f(a)
         self.assertEqual(fa.shape, a.shape)
         self.assertAlmostEqual(abs(fa[:,:,0,1:]).max(), 0)
@@ -192,7 +192,7 @@ class _TestTransforms(unittest.TestCase):
         def xr0m1(a):
             return roll(a, 1, axis=0).copy() - 1
         a = np.ones([4,5,2,3]) + np.arange(2)[:,np.newaxis]
-        f = compile(xr0m1, a)
+        f = compile_function(xr0m1, a)
         fa = f(a)
         self.assertEqual(fa.shape, a.shape)
         self.assertAlmostEqual(abs(fa[:,:,0,:] - 1).max(), 0)
@@ -205,7 +205,7 @@ class _TestIndexing(unittest.TestCase):
         def pick12(a):
             return a[1,2]
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(pick12, a)
+        f = compile_function(pick12, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4))
         self.assertAlmostEqual(abs(fa - a[:,:,1,2]).max(), 0)
@@ -214,7 +214,7 @@ class _TestIndexing(unittest.TestCase):
         def pickRange(a):
             return a[1:-1,1:-1]
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(pickRange, a)
+        f = compile_function(pickRange, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,3,4))
         self.assertAlmostEqual(abs(fa - a[:,:,1:-1,1:-1]).max(), 0)
@@ -223,7 +223,7 @@ class _TestIndexing(unittest.TestCase):
         def pickLast(a):
             return a[-1]
         a = np.zeros([3,4,1]) + np.arange(5)
-        f = compile(pickLast, a)
+        f = compile_function(pickLast, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4))
         self.assertAlmostEqual(abs(fa - 4).max(), 0)
@@ -233,7 +233,7 @@ class _TestIndexing(unittest.TestCase):
             a[1,2] = 0
             return a
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(set12, a)
+        f = compile_function(set12, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,5,6))
         self.assertAlmostEqual(abs(fa[:,:,1,2]).max(), 0)
@@ -246,7 +246,7 @@ class _TestIndexing(unittest.TestCase):
             a[1,2] = 2 * a[1,2].x_p
             return a
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(set12, a)
+        f = compile_function(set12, a)
         fa = f(a)
         self.assertEqual(fa.shape, (1,2,5,6))
         self.assertAlmostEqual(abs(fa[:,:,1,2] - a[0,0,1,2] * 2).max(), 0)
@@ -260,7 +260,7 @@ class _TestIndexing(unittest.TestCase):
             b[1:-1,1:-1] = sin(a[2,3])
             return b
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(setRange, a)
+        f = compile_function(setRange, a)
         fa = f(a)
         self.assertEqual(fa.shape, (1,2,5,6))
         self.assertAlmostEqual(abs(fa[:,:,1:-1,1:-1] \
@@ -273,7 +273,7 @@ class _TestIndexing(unittest.TestCase):
             a[1,2:4] = ones(2)
             return a
         a = np.ones([3,4,5,1]) + np.arange(6)
-        f = compile(setToOnes, a)
+        f = compile_function(setToOnes, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,5,6))
         self.assertAlmostEqual(abs(fa[:,:,1,2:4] - 1).max(), 0)
@@ -285,7 +285,7 @@ class _TestIndexing(unittest.TestCase):
             a[0,:] = b
             return a
         a = np.ones([3,4,3,4]) + np.arange(4)
-        f = compile(setToOnes, a)
+        f = compile_function(setToOnes, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,3,4))
         self.assertAlmostEqual(abs(fa[:,:,0,[0,3]]).max(), 0)
@@ -297,7 +297,7 @@ class _TestSumMean(unittest.TestCase):
         def sum1(a):
             return a.sum()
         a = np.zeros([3,4,3,4]) + np.arange(4)
-        f = compile(sum1, a)
+        f = compile_function(sum1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4))
         self.assertAlmostEqual(abs(fa - 18).max(), 0)
@@ -306,7 +306,7 @@ class _TestSumMean(unittest.TestCase):
         def sum1(a):
             return a.sum(1)
         a = np.zeros([3,4,3,4]) + np.arange(4)
-        f = compile(sum1, a)
+        f = compile_function(sum1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,3))
         self.assertAlmostEqual(abs(fa - 6).max(), 0)
@@ -315,7 +315,7 @@ class _TestSumMean(unittest.TestCase):
         def mean1(a):
             return a.mean()
         a = np.zeros([3,4,3,4]) + np.arange(4)
-        f = compile(mean1, a)
+        f = compile_function(mean1, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4))
         self.assertAlmostEqual(abs(fa - 1.5).max(), 0)
@@ -324,7 +324,7 @@ class _TestSumMean(unittest.TestCase):
         def mean2(a):
             return a.mean(1)
         a = np.zeros([3,4,3,4]) + np.arange(4)
-        f = compile(mean2, a)
+        f = compile_function(mean2, a)
         fa = f(a)
         self.assertEqual(fa.shape, (3,4,3))
         self.assertAlmostEqual(abs(fa - 1.5).max(), 0)

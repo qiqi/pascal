@@ -16,7 +16,7 @@ def _is_like_sa(a):
     '''
     Check attributes of sa object
     '''
-    return hasattr(a, 'tensor') and hasattr(a, 'has_ghost')
+    return hasattr(a, '_tensor') and hasattr(a, 'has_ghost')
 
 def _promote_ndim(t, ndim):
     if t.ndim == ndim:
@@ -47,8 +47,8 @@ def _binary_op(op, a, b):
     '''
     if _is_like_sa(a) and _is_like_sa(b):
         ndim = max(a.ndim, b.ndim) + 2
-        at = _promote_ndim(a.tensor, ndim)
-        bt = _promote_ndim(b.tensor, ndim)
+        at = _promote_ndim(a._tensor, ndim)
+        bt = _promote_ndim(b._tensor, ndim)
         if a.has_ghost and not b.has_ghost:
             if not _is_broadcastable(at):
                 at = at[1:-1,1:-1]
@@ -56,21 +56,21 @@ def _binary_op(op, a, b):
             if not _is_broadcastable(bt):
                 bt = bt[1:-1,1:-1]
         shape = op(np.ones(a.shape), np.ones(b.shape)).shape
-        return stencil_array(shape, op(at, bt), a.has_ghost and b.has_ghost)
+        return stencil_array(op(at, bt), shape, a.has_ghost and b.has_ghost)
     elif _is_like_sa(a):
         shape = op(np.ones(a.shape), b).shape
         if len(shape) > a.ndim:
-            at = _promote_ndim(a.tensor, len(shape) + 2)
+            at = _promote_ndim(a._tensor, len(shape) + 2)
         else:
-            at = a.tensor
-        return stencil_array(shape, op(at, b), a.has_ghost)
+            at = a._tensor
+        return stencil_array(op(at, b), shape, a.has_ghost)
     elif _is_like_sa(b):
         shape = op(a, np.ones(b.shape)).shape
         if len(shape) > b.ndim:
-            bt = _promote_ndim(b.tensor, len(shape) + 2)
+            bt = _promote_ndim(b._tensor, len(shape) + 2)
         else:
-            bt = b.tensor
-        return stencil_array(shape, op(a, bt), b.has_ghost)
+            bt = b._tensor
+        return stencil_array(op(a, bt), shape, b.has_ghost)
 
 
 # ============================================================================ #
@@ -84,15 +84,19 @@ class stencil_array(object):
     '''
     __context__ = sys.modules[__name__]
 
-    def __init__(self, shape, tensor, has_ghost):
+    def __init__(self, tensor, shape, has_ghost):
         assert tensor.ndim == len(shape) + 2
         for i in shape:
             assert isinstance(i, int)
         self.shape = tuple(shape)
-        self.tensor = tensor
+        self._tensor = tensor
         self.has_ghost = has_ghost
 
     # --------------------------- properties ------------------------------ #
+
+    @property
+    def value(self):
+        return self._tensor
 
     @property
     def ndim(self):
@@ -141,7 +145,7 @@ class stencil_array(object):
         return _binary_op(operator.pow, a, self)
 
     def __neg__(self):
-        return stencil_array(self.shape, -self.tensor, self.has_ghost)
+        return stencil_array(-self._tensor, self.shape, self.has_ghost)
 
     # ------------------------- math functions ---------------------------- #
 
@@ -171,34 +175,34 @@ class stencil_array(object):
     @property
     def x_p(self):
         assert self.has_ghost, 'Has No Ghost'
-        if _is_broadcastable(self.tensor):
+        if _is_broadcastable(self._tensor):
             return self
         else:
-            return stencil_array(self.shape, self.tensor[2:,1:-1], False)
+            return stencil_array(self._tensor[2:,1:-1], self.shape, False)
 
     @property
     def x_m(self):
         assert self.has_ghost, 'Has No Ghost'
-        if _is_broadcastable(self.tensor):
+        if _is_broadcastable(self._tensor):
             return self
         else:
-            return stencil_array(self.shape, self.tensor[:-2,1:-1], False)
+            return stencil_array(self._tensor[:-2,1:-1], self.shape, False)
 
     @property
     def y_p(self):
         assert self.has_ghost, 'Has No Ghost'
-        if _is_broadcastable(self.tensor):
+        if _is_broadcastable(self._tensor):
             return self
         else:
-            return stencil_array(self.shape, self.tensor[1:-1,2:], False)
+            return stencil_array(self._tensor[1:-1,2:], self.shape, False)
 
     @property
     def y_m(self):
         assert self.has_ghost, 'Has No Ghost'
-        if _is_broadcastable(self.tensor):
+        if _is_broadcastable(self._tensor):
             return self
         else:
-            return stencil_array(self.shape, self.tensor[1:-1,:-2], False)
+            return stencil_array(self._tensor[1:-1,:-2], self.shape, False)
 
     # ---------------------------- indexing ------------------------------- #
 
@@ -212,29 +216,29 @@ class stencil_array(object):
     def __getitem__(self, ind):
         shape = np.empty(self.shape)[ind].shape
         tensor_ind = self._data_index_(ind)
-        return stencil_array(shape, self.tensor[tensor_ind], self.has_ghost)
+        return stencil_array(self._tensor[tensor_ind], shape, self.has_ghost)
 
     def __setitem__(self, ind, a):
-        sub_tensor = self.tensor[self._data_index_(ind)]
+        sub_tensor = self._tensor[self._data_index_(ind)]
         if not _is_like_sa(a):
-            self.tensor = T.set_subtensor(sub_tensor, a)
+            self._tensor = T.set_subtensor(sub_tensor, a)
         else:
-            a_tensor = _promote_ndim(a.tensor, sub_tensor.ndim)
-            if _is_broadcastable(self.tensor):
+            a_tensor = _promote_ndim(a._tensor, sub_tensor.ndim)
+            if _is_broadcastable(self._tensor):
                 z = T.zeros_like(a_tensor)
                 while z.ndim > 2:
                     z = z[:,:,0]
-                self.tensor = self.tensor + _promote_ndim(z, self.tensor.ndim)
+                self._tensor = self._tensor + _promote_ndim(z, self._tensor.ndim)
                 self.has_ghost = a.has_ghost
-                sub_tensor = self.tensor[self._data_index_(ind)]
+                sub_tensor = self._tensor[self._data_index_(ind)]
 
             if a.has_ghost == self.has_ghost or _is_broadcastable(a_tensor):
-                self.tensor = T.set_subtensor(sub_tensor, a_tensor)
+                self._tensor = T.set_subtensor(sub_tensor, a_tensor)
             elif a.has_ghost:   # self has no ghost
-                self.tensor = T.set_subtensor(sub_tensor, a_tensor[1:-1,1:-1])
+                self._tensor = T.set_subtensor(sub_tensor, a_tensor[1:-1,1:-1])
             else:               # self has ghost but a does not
-                sub_tensor = self.tensor[1:-1,1:-1][self._data_index_(ind)]
-                self.tensor = T.set_subtensor(sub_tensor, a_tensor)
+                sub_tensor = self._tensor[1:-1,1:-1][self._data_index_(ind)]
+                self._tensor = T.set_subtensor(sub_tensor, a_tensor)
                 self.has_ghost = False
 
 # ============================================================================ #
@@ -245,32 +249,32 @@ def transpose(x, axes=None):
     if axes is None:
         axes = tuple(reversed(range(x.ndim)))
     transposed_shape = tuple(x.shape[i] for i in axes)
-    transposed_tensor = x.tensor.transpose((0, 1) + tuple(i+2 for i in axes))
-    return stencil_array(transposed_shape, transposed_tensor, x.has_ghost)
+    transposed_tensor = x._tensor.transpose((0, 1) + tuple(i+2 for i in axes))
+    return stencil_array(transposed_tensor, transposed_shape, x.has_ghost)
 
 def reshape(x, shape):
     shape = np.empty(x.shape).reshape(shape).shape
     ndim = len(shape) + 2
     if len(shape):
-        tensor_shape = T.join(0, x.tensor.shape[:2], shape)
+        tensor_shape = T.join(0, x._tensor.shape[:2], shape)
     else:
-        tensor_shape = x.tensor.shape[:2]
-    reshaped_tensor = x.tensor.reshape(tensor_shape, ndim=ndim)
-    return stencil_array(shape, reshaped_tensor, x.has_ghost)
+        tensor_shape = x._tensor.shape[:2]
+    reshaped_tensor = x._tensor.reshape(tensor_shape, ndim=ndim)
+    return stencil_array(reshaped_tensor, shape, x.has_ghost)
 
 def roll(x, shift, axis=None):
     if axis is None:
-        tensor_shape = T.join(0, x.tensor.shape[:2], [-1])
-        new_tensor = x.tensor.reshape(tensor_shape, ndim=3)
+        tensor_shape = T.join(0, x._tensor.shape[:2], [-1])
+        new_tensor = x._tensor.reshape(tensor_shape, ndim=3)
         new_tensor = T.roll(new_tensor, shift, 2)
-        new_tensor = new_tensor.reshape(x.tensor.shape, ndim=x.tensor.ndim)
+        new_tensor = new_tensor.reshape(x._tensor.shape, ndim=x._tensor.ndim)
     else:
-        new_tensor = T.roll(x.tensor, shift, axis+2)
-    return stencil_array(x.shape, new_tensor, x.has_ghost)
+        new_tensor = T.roll(x._tensor, shift, axis+2)
+    return stencil_array(new_tensor, x.shape, x.has_ghost)
 
 def copy(a):
     assert _is_like_sa(a)
-    return stencil_array(a.shape, a.tensor, a.has_ghost)
+    return stencil_array(a._tensor, a.shape, a.has_ghost)
 
 
 # ============================================================================ #
@@ -279,37 +283,37 @@ def copy(a):
 
 def sin(a):
     assert _is_like_sa(a)
-    return stencil_array(a.shape, T.sin(a.tensor), a.has_ghost)
+    return stencil_array(T.sin(a._tensor), a.shape, a.has_ghost)
 
 def cos(a):
     assert _is_like_sa(a)
-    return stencil_array(a.shape, T.cos(a.tensor), a.has_ghost)
+    return stencil_array(T.cos(a._tensor), a.shape, a.has_ghost)
 
 def exp(a):
     assert _is_like_sa(a)
-    return stencil_array(a.shape, T.sin(a.tensor), a.has_ghost)
+    return stencil_array(T.sin(a._tensor), a.shape, a.has_ghost)
 
 def sum(a, axis=None):
     assert _is_like_sa(a)
     if axis is None:
-        tensor_shape = T.join(0, a.tensor.shape[:2], [a.size])
-        tensor = T.sum(T.reshape(a.tensor, tensor_shape, ndim=3), axis=2)
-        return stencil_array((), tensor, a.has_ghost)
+        tensor_shape = T.join(0, a._tensor.shape[:2], [a.size])
+        tensor = T.sum(T.reshape(a._tensor, tensor_shape, ndim=3), axis=2)
+        return stencil_array(tensor, (), a.has_ghost)
     else:
         shape = np.zeros(a.shape).sum(axis).shape
-        tensor = T.sum(a.tensor, axis+2)
-        return stencil_array(shape, tensor, a.has_ghost)
+        tensor = T.sum(a._tensor, axis+2)
+        return stencil_array(tensor, shape, a.has_ghost)
 
 def mean(a, axis=None):
     assert _is_like_sa(a)
     if axis is None:
-        tensor_shape = T.join(0, a.tensor.shape[:2], [a.size])
-        tensor = T.mean(T.reshape(a.tensor, tensor_shape, ndim=3), axis=2)
-        return stencil_array((), tensor, a.has_ghost)
+        tensor_shape = T.join(0, a._tensor.shape[:2], [a.size])
+        tensor = T.mean(T.reshape(a._tensor, tensor_shape, ndim=3), axis=2)
+        return stencil_array(tensor, (), a.has_ghost)
     else:
         shape = np.zeros(a.shape).mean(axis).shape
-        tensor = T.mean(a.tensor, axis+2)
-        return stencil_array(shape, tensor, a.has_ghost)
+        tensor = T.mean(a._tensor, axis+2)
+        return stencil_array(tensor, shape, a.has_ghost)
 
 # ============================================================================ #
 #                               sa arrays generators                         #
@@ -317,22 +321,26 @@ def mean(a, axis=None):
 
 def ones(shape=()):
     shape = np.ones(shape).shape
-    return stencil_array(shape, T.ones((1,1) + shape), has_ghost=True)
+    return stencil_array(T.ones((1,1) + shape), shape, has_ghost=True)
 
 def zeros(shape=()):
     shape = np.zeros(shape).shape
-    return stencil_array(shape, T.zeros((1,1) + shape), has_ghost=True)
+    return stencil_array(T.zeros((1,1) + shape), shape, has_ghost=True)
 
 # ============================================================================ #
 #                          compiling into theano function                      #
 # ============================================================================ #
 
-def compile(func, inputs=(), args=(), argv={}):
-    np2theano = lambda a: T.Tensor('float64', (False,) * a.ndim)()
+def compile(input_values, output_values):
+    return theano.function(input_values, output_values,
+                           on_unused_input='ignore')
+
+def compile_function(func, inputs=(), args=(), argv={}):
+    np2sa = lambda a: stencil_array(T.Tensor('float64', (False,) * a.ndim)(),
+                                    a.shape[2:], True)
     input_list = [inputs] if hasattr(inputs, 'ndim') else list(inputs)
-    theano_inputs = [np2theano(a) for a in input_list]
-    sa_inputs = [stencil_array(a.shape[2:], t, True) \
-            for t, a in zip(theano_inputs, input_list)]
+    sa_inputs = [np2sa(inp) for inp in input_list]
+    input_values = [sa.value for sa in sa_inputs]
 
     if hasattr(inputs, 'ndim'):
         sa_outputs = func(sa_inputs[0], *args, **argv)
@@ -341,13 +349,12 @@ def compile(func, inputs=(), args=(), argv={}):
     else:
         sa_outputs = func(*args, **argv)
 
-    if hasattr(sa_outputs, 'tensor'):
-        theano_outputs = sa_outputs.tensor
+    if _is_like_sa(sa_outputs):
+        output_values = sa_outputs.value
     else:
-        theano_outputs = [a.tensor for a in sa_outputs]
+        output_values = [sa.value for sa in sa_outputs]
 
-    return theano.function(theano_inputs, theano_outputs,
-            on_unused_input='ignore')
+    return compile(input_values, output_values)
 
 ################################################################################
 ################################################################################
