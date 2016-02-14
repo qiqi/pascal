@@ -332,14 +332,20 @@ def zeros(shape=()):
 # ============================================================================ #
 
 def compile(input_values, output_values):
+    if hasattr(input_values, 'shape') and \
+            hasattr(input_values, 'broadcastable'):
+        input_values = [input_values]
     return theano.function(input_values, output_values,
                            on_unused_input='ignore')
 
+def numpy_to_sa(a):
+    assert isinstance(a, np.ndarray)
+    tensor_type = T.Tensor('float64', (False,) * a.ndim)
+    return stencil_array(tensor_type(), a.shape[2:], True)
+
 def compile_function(func, inputs=(), args=(), argv={}):
-    np2sa = lambda a: stencil_array(T.Tensor('float64', (False,) * a.ndim)(),
-                                    a.shape[2:], True)
     input_list = [inputs] if hasattr(inputs, 'ndim') else list(inputs)
-    sa_inputs = [np2sa(inp) for inp in input_list]
+    sa_inputs = list(map(numpy_to_sa, input_list))
     input_values = [sa.value for sa in sa_inputs]
 
     if hasattr(inputs, 'ndim'):

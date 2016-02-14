@@ -392,7 +392,7 @@ def zeros(shape=()):
 #                                decomposition                                 #
 # ============================================================================ #
 
-class decompose(object):
+class DecomposedStages(object):
     '''
     '''
     # TODO: Add comments
@@ -400,41 +400,23 @@ class decompose(object):
     LP = collections.namedtuple('LP', 'c, bounds, A_eq, A_le, b_eq, b_le')
     LPRes = collections.namedtuple('LPRes', 'x, obj, status')
 
-    def _build_computational_graph(self, func, inputs):
-        if not isinstance(inputs, tuple):
-            inputs = (inputs,)
-
-        def _tidy_input(inp):
-            if hasattr(inp, 'shape'):
-                return stencil_array(inp.shape)
-            else:
-                return stencil_array(np.array(inp).shape)
-
-        inputs = tuple(map(_tidy_input, inputs))
-        self.inputs = tuple(inp.value for inp in inputs)
-
-        outputs = func(*inputs)
-        if not isinstance(outputs, tuple):
-            outputs = (outputs,)
-        self.outputs = tuple(out.value for out in outputs)
-
-
     # --------------------------------------------------------------------- #
 
     def _assign_id_to_values(self):
+        '''
+        Assign a zero-based id to each value between (and include)
+        upstream and downstream values
+        '''
         self.values = []
-        def set_value_id(a):
-            if _is_like_sa_value(a) and a not in self.values:
-                a._valueId = len(self.values)
-                self.values.append(a)
-                if a.owner:
-                    for inp in a.owner.inputs:
+        def set_value_id(v):
+            if _is_like_sa_value(v) and v not in self.values:
+                v._valueId = len(self.values)
+                self.values.append(v)
+                if v not in self.upstream_values and v.owner:
+                    for inp in v.owner.inputs:
                         set_value_id(inp)
-        for out in self.outputs:
-            set_value_id(out)
-
-        self.values = list(self.values)
-        assert all([a._valueId < len(self.values) for a in self.values])
+        for v in self.downstrea_values:
+            set_value_id(v)
 
     # --------------------------------------------------------------------- #
 
@@ -467,12 +449,12 @@ class decompose(object):
         z = np.zeros(n)
         e = np.eye(n)
 
-        for a in self.inputs:
+        for a in self.upstream_values:
             i = a._valueId
             # an input value is born at Stage 0
             add_eq(e[i], z, z, 0, 0)
 
-        for a in self.outputs:
+        for a in self.downstrea_values:
             i = a._valueId
             # an output value is killed at Stage K (last stage)
             add_eq(z, e[i], z, -1, 0)
@@ -586,15 +568,22 @@ class decompose(object):
 
     # --------------------------------------------------------------------- #
 
-    def __init__(self, func, inputs, verbose=True):
-        self._build_computational_graph(func, inputs)
+    def __init__(self, upstream_values, downstrea_values, verbose=True):
+        self.upstream_values = upstream_values
+        self.downstrea_values = downstrea_values
         self._assign_id_to_values()
         self._build_linear_program()
         self._solve_linear_program(verbose)
         self._assign_lp_results_to_vars()
-
-        self.stages = [Stage(self.values, self.inputs, self.outputs,
-                       k, self.numStages) for k in range(self.numStages)]
+        self.stages = [
+            Stage(
+                self.values,
+                self.upstream_values,
+                self.downstrea_values,
+                k,
+                self.numStages
+            ) for k in range(self.numStages)
+        ]
 
     # --------------------------------------------------------------------- #
 
@@ -607,6 +596,27 @@ class decompose(object):
 
     def __getitem__(self, i):
         return self.stages[i]
+
+
+def decompose_function(func, inputs, verbose=True):
+    if not isinstance(inputs, tuple):
+        inputs = (inputs,)
+
+    def _tidy_input(inp):
+        if hasattr(inp, 'shape'):
+            return stencil_array(inp.shape)
+        else:
+            return stencil_array(np.array(inp).shape)
+
+    inputs = tuple(map(_tidy_input, inputs))
+    upstream_values = tuple(inp.value for inp in inputs)
+
+    outputs = func(*inputs)
+    if not isinstance(outputs, tuple):
+        outputs = (outputs,)
+    downstream_values = tuple(out.value for out in outputs)
+
+    return DecomposedStages(upstream_values, downstream_values, verbose)
 
 
 # ============================================================================ #

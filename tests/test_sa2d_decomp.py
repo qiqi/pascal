@@ -49,7 +49,7 @@ class _TestSimpleUpdates(unittest.TestCase):
 
         Ni, Nj = 4, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
-        stages = decompose(update, stencil_array())
+        stages = decompose_function(update, stencil_array())
 
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
@@ -67,7 +67,7 @@ class _TestSimpleUpdates(unittest.TestCase):
 
         Ni, Nj = 4, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
-        stages = decompose(update, stencil_array((2,)))
+        stages = decompose_function(update, stencil_array((2,)))
 
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
@@ -84,7 +84,7 @@ class _TestSimpleUpdates(unittest.TestCase):
             return G.exp(u).copy().sum(0).mean()
 
         G = sys.modules[__name__]
-        stages = decompose(update, stencil_array((2,3)))
+        stages = decompose_function(update, stencil_array((2,3)))
 
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
@@ -103,7 +103,7 @@ class _TestSimpleUpdates(unittest.TestCase):
             return G.roll(u.transpose([1,0,2]).reshape([3,-1]).T, 1)
 
         G = sys.modules[__name__]
-        stages = decompose(update, stencil_array((2,3,4)))
+        stages = decompose_function(update, stencil_array((2,3,4)))
 
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
@@ -126,7 +126,7 @@ class _TestSimpleUpdates(unittest.TestCase):
             return v
 
         G = sys.modules[__name__]
-        stages = decompose(update, [0,0])
+        stages = decompose_function(update, [0,0])
 
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
@@ -154,7 +154,7 @@ class _TestSingleStage(unittest.TestCase):
             return u + dt * (u.x_m + u.x_p + u.y_m + u.y_p - 4 * u) / dx**2
 
         G = sys.modules[__name__]
-        heatStages = decompose(heat, stencil_array())
+        heatStages = decompose_function(heat, stencil_array())
 
         self.assertEqual(len(heatStages), 1)
         stage0 = heatStages[0]
@@ -188,7 +188,7 @@ class _TestSingleStage(unittest.TestCase):
             return u - dt * G.sin(u)
 
         G = sys.modules[__name__]
-        odeStages = decompose(ode, stencil_array())
+        odeStages = decompose_function(ode, stencil_array())
 
         self.assertEqual(len(odeStages), 1)
         stage0 = odeStages[0]
@@ -208,7 +208,7 @@ class _TestSingleStage(unittest.TestCase):
             return u - dt * G.cos(u) / len(u)
 
         G = sys.modules[__name__]
-        odeStages = decompose(ode, stencil_array())
+        odeStages = decompose_function(ode, stencil_array())
 
         self.assertEqual(len(odeStages), 1)
         stage0 = odeStages[0]
@@ -233,7 +233,7 @@ class _TestMultiStage(unittest.TestCase):
             return u + dt * (uh.x_m + uh.x_p + uh.y_m + uh.y_p - 4 * uh) / dx**2
 
         G = sys.modules[__name__]
-        heatStages = decompose(heatMidpoint, stencil_array())
+        heatStages = decompose_function(heatMidpoint, stencil_array())
 
         self.assertEqual(len(heatStages), 2)
         stage0, stage1 = heatStages
@@ -264,7 +264,7 @@ class _TestMultiStage(unittest.TestCase):
             du3 = dt * ks_dudt(u0 + du2)
             return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
 
-        ksStages = decompose(ks_rk4, stencil_array())
+        ksStages = decompose_function(ks_rk4, stencil_array())
 
         self.assertEqual(len(ksStages), 8)
 
@@ -286,7 +286,7 @@ def ij_np(i0, i1, j0, j1):
     return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
            np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
 
-def runStages(stages, u0, source_dict):
+def runStages0(stages, u0, source_dict):
     Ni = u0.shape[0] - 2
     Nj = u0.shape[1] - 2
     stage_in = [u0]
@@ -304,7 +304,7 @@ def runStages(stages, u0, source_dict):
             return out_obj
 
         stage_in = stage_in + [source_dict[s] for s in stage.sourceValues]
-        compiled_stage = sa2d_theano.compile(stage_func, stage_in)
+        compiled_stage = sa2d_theano.compile_function(stage_func, stage_in)
         stage_out = compiled_stage(*stage_in)
 
         if k == len(stages) - 1:
@@ -329,6 +329,52 @@ def runStages(stages, u0, source_dict):
 
     return stage_out
 
+def compile_stage(stage, upstream_arrays, source_arrays,
+                  unstack_input, stack_output):
+    theano_inputs = [a.value for a in upstream_arrays + source_arrays]
+    if unstack_input:
+        upstream_arrays = stage.unstack_input(*tuple(upstream_arrays))
+    downstream_arrays = stage(upstream_arrays, source_arrays)
+    if stack_output:
+        downstream_arrays = stage.stack_output(downstream_arrays)
+    theano_outputs = [a.value for a in downstream_arrays]
+    print([a.shape for a in downstream_arrays])
+    return sa2d_theano.compile(theano_inputs, theano_outputs)
+
+def update_nbr(no_nbr):
+    assert no_nbr.ndim == 3
+    Ni, Nj = no_nbr.shape[:2]
+    new_nbr = np.zeros((Ni+2, Nj+2, no_nbr.shape[2]))
+    new_nbr[1:-1,1:-1] = no_nbr
+    new_nbr[0,1:-1] = no_nbr[-1,:]
+    new_nbr[-1,1:-1] = no_nbr[0,:]
+    new_nbr[1:-1,0] = no_nbr[:,-1]
+    new_nbr[1:-1,-1] = no_nbr[:,0]
+    return new_nbr
+
+def run_stages(stages, u0, source_numpy_dict):
+    Ni = u0.shape[0] - 2
+    Nj = u0.shape[1] - 2
+    upstream_numpy_values = [u0]
+    source_sa_dict = dict((key, sa2d_theano.numpy_to_sa(val))
+                          for key, val in source_numpy_dict.items())
+    for k, stage in enumerate(stages):
+        print('Compiling and running atomic stage {0}'.format(k))
+        upstream_arrays = list(map(sa2d_theano.numpy_to_sa,
+                                   upstream_numpy_values))
+        source_arrays = [source_sa_dict[s] for s in stage.sourceValues]
+        theano_function = compile_stage(stage, upstream_arrays, source_arrays,
+                                        k > 0, k < len(stages)-1)
+
+        source_numpy_values = [source_numpy_dict[s] for s in stage.sourceValues]
+        numpy_inputs = tuple(upstream_numpy_values + source_numpy_values)
+        downstream_numpy_values = theano_function(*numpy_inputs)
+        if k == len(stages) - 1:
+            return downstream_numpy_values
+        upstream_numpy_values = list(downstream_numpy_values)
+        upstream_numpy_values[0] = update_nbr(downstream_numpy_values[0])
+
+
 # ---------------------------------------------------------------------------- #
 
 class _TestTheano(unittest.TestCase):
@@ -343,14 +389,14 @@ class _TestTheano(unittest.TestCase):
             dt = 0.01
             return u + dt * heat(u)
 
-        heatStages = decompose(heatMidpoint, stencil_array())
+        heatStages = decompose_function(heatMidpoint, stencil_array())
 
         Ni, Nj = 8, 8
         i, j = ij_np(-1, Ni+1, -1, Nj+1)
         u0 = np.sin(i / Ni * np.pi * 2)
         f0 = u0 * 0
 
-        u1, = runStages(heatStages, u0, {f.value: f0})
+        u1, = run_stages(heatStages, u0, {f.value: f0})
 
         dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
         err = u1 - u0[1:-1,1:-1] * (1 - dudt)
@@ -369,14 +415,14 @@ class _TestTheano(unittest.TestCase):
             uh = u + 0.5 * dt * heat(u)
             return u + dt * heat(uh)
 
-        heatStages = decompose(heatMidpoint, stencil_array())
+        heatStages = decompose_function(heatMidpoint, stencil_array())
 
         Ni, Nj = 8, 8
         i, j = ij_np(-1, Ni+1, -1, Nj+1)
         u0 = np.sin(i / Ni * np.pi * 2)
         f0 = u0 * 0
 
-        u1, = runStages(heatStages, u0, {f.value: f0})
+        u1, = run_stages(heatStages, u0, {f.value: f0})
 
         dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
         err = u1 - u0[1:-1,1:-1] * (1 - dudt + dudt**2 / 2)
@@ -401,14 +447,14 @@ class _TestTheano(unittest.TestCase):
             du3 = dt * ks_dudt(u0 + du2)
             return u0 + (du0 + 2 * du1 + 2 * du2 + du3) / 6
 
-        ksStages = decompose(ks_rk4, stencil_array())
+        ksStages = decompose_function(ks_rk4, stencil_array())
 
         Ni, Nj = 8, 8
         i, j = ij_np(-1, Ni+1, -1, Nj+1)
         u0 = np.sin(i / Ni * np.pi * 2)
         f0 = u0 * 0
 
-        u1, = runStages(ksStages, u0, {f.value: f0})
+        u1, = run_stages(ksStages, u0, {f.value: f0})
 
 
 # ============================================================================ #
@@ -491,7 +537,7 @@ class _TestEuler(unittest.TestCase):
             dw3 = -dt * rhs(w + dw2)
             return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
-        stages = decompose(step, stencil_array((4,)))
+        stages = decompose_function(step, stencil_array((4,)))
         self.assertEqual(len(stages), 8)
 
         w0 = G.zeros(4) + np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
@@ -581,7 +627,7 @@ class _TestEuler(unittest.TestCase):
             dw3 = -dt * rhs(w + dw2)
             return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
-        stages = decompose(step, stencil_array((4,)))
+        stages = decompose_function(step, stencil_array((4,)))
         self.assertEqual(len(stages), 8)
 
         w0 = np.zeros([Ni+2, Nj+2, 4]) + \
@@ -589,7 +635,7 @@ class _TestEuler(unittest.TestCase):
         z = np.zeros([Ni+2, Nj+2])
         i0, j0 = np.zeros([2, Ni+2, Nj+2])
 
-        u1, = runStages(stages, w0, {G_ZERO: z, i.value: i0, j.value: j0})
+        u1, = run_stages(stages, w0, {G_ZERO: z, i.value: i0, j.value: j0})
         self.assertEqual(u1.shape, (Ni, Nj, 4))
 
 ################################################################################
