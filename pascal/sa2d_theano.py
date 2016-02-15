@@ -85,7 +85,11 @@ class stencil_array(object):
     __context__ = sys.modules[__name__]
 
     def __init__(self, tensor, shape, has_ghost):
-        assert tensor.ndim == len(shape) + 2
+        if tensor is not None:
+            assert tensor.ndim == len(shape) + 2
+        else:
+            tensor_type = T.Tensor('float64', (False,) * (len(shape) + 2))
+            tensor = tensor_type()
         for i in shape:
             assert isinstance(i, int)
         self.shape = tuple(shape)
@@ -340,8 +344,7 @@ def compile(input_values, output_values):
 
 def numpy_to_sa(a):
     assert isinstance(a, np.ndarray)
-    tensor_type = T.Tensor('float64', (False,) * a.ndim)
-    return stencil_array(tensor_type(), a.shape[2:], True)
+    return stencil_array(None, a.shape[2:], True)
 
 def compile_function(func, inputs=(), args=(), argv={}):
     input_list = [inputs] if hasattr(inputs, 'ndim') else list(inputs)

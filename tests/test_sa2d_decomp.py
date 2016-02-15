@@ -353,8 +353,6 @@ def update_nbr(no_nbr):
     return new_nbr
 
 def run_stages(stages, u0, source_numpy_dict):
-    Ni = u0.shape[0] - 2
-    Nj = u0.shape[1] - 2
     upstream_numpy_values = [u0]
     source_sa_dict = dict((key, sa2d_theano.numpy_to_sa(val))
                           for key, val in source_numpy_dict.items())

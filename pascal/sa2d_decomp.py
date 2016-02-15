@@ -415,7 +415,7 @@ class DecomposedStages(object):
                 if v not in self.upstream_values and v.owner:
                     for inp in v.owner.inputs:
                         set_value_id(inp)
-        for v in self.downstrea_values:
+        for v in self.downstream_values:
             set_value_id(v)
 
     # --------------------------------------------------------------------- #
@@ -454,7 +454,7 @@ class DecomposedStages(object):
             # an input value is born at Stage 0
             add_eq(e[i], z, z, 0, 0)
 
-        for a in self.downstrea_values:
+        for a in self.downstream_values:
             i = a._valueId
             # an output value is killed at Stage K (last stage)
             add_eq(z, e[i], z, -1, 0)
@@ -568,9 +568,9 @@ class DecomposedStages(object):
 
     # --------------------------------------------------------------------- #
 
-    def __init__(self, upstream_values, downstrea_values, verbose=True):
+    def __init__(self, upstream_values, downstream_values, verbose=True):
         self.upstream_values = upstream_values
-        self.downstrea_values = downstrea_values
+        self.downstream_values = downstream_values
         self._assign_id_to_values()
         self._build_linear_program()
         self._solve_linear_program(verbose)
@@ -579,7 +579,7 @@ class DecomposedStages(object):
             Stage(
                 self.values,
                 self.upstream_values,
-                self.downstrea_values,
+                self.downstream_values,
                 k,
                 self.numStages
             ) for k in range(self.numStages)
@@ -622,6 +622,94 @@ def decompose_function(func, inputs, verbose=True):
 # ============================================================================ #
 #                                atomic stage                                  #
 # ============================================================================ #
+
+def discover_values(upstream_values, downstream_values):
+    discovered_values = []
+    discovered_source_values = []
+    def discover_values_from(v):
+        if v.owner is None:
+            discovered_source_values.append(v)
+        elif v not in upstream_values:
+            discovered_values.append(v)
+            for v_inp in v.owner.inputs:
+                discover_values_from(v_inp)
+    for v in downstream_values:
+        discover_values_from(v)
+    return discovered_values, discovered_source_values
+
+def sort_values(sorted_values, unsorted_values):
+    unsorted_values = copymodule.copy(values)
+    sorted_values = []
+    def is_computable(v):
+        return (not _is_like_sa_value(v) or
+                v in sorted_values or
+                v.owner is None)
+    while len(unsorted_values):
+        removed_any = false
+        for v in unsorted_values:
+            if all([is_computable(v_inp) for v_inp in v.owner.inputs]):
+                unsorted_values.remove(a)
+                ordered_values.append(v)
+                removed_any = True
+        if not removed_any:
+            return
+
+class AtomicStage(object):
+    def __init__(self, upstream_values, downstream_values):
+        sorted_values = copymodule.copy(upstream_values)
+        unsorted_values, self.triburary_values = discover_values(
+                upstream_values, downstream_values)
+        sort_values(sorted_values, unsorted_values)
+        assert unsorted_values == []
+        self.upstream_values = sorted_values[:len(upstream_values)]
+        self.sorted_values = sorted_values[len(upstream_values):]
+        self.downstream_values = copymodule.copy(downstream_values)
+
+    def __call__(self, upstream_values, triburary_values=[]):
+        # _tmp attributes are assigned to inputs
+        values = self.upstream_values + self.triburary_values
+        tmp_values = upstream_values + triburary_values
+        for v, v_tmp in zip(values, tmp_values):
+            assert not hasattr(v, '_tmp')
+            v._tmp = v_tmp
+        # _tmp attributes are computed to each value
+        _tmp = lambda v : v._obj if _is_like_sa_value(v) else v
+        for v in self.sorted_values:
+            assert not hasattr(v, '_tmp')
+            inputs_tmp = tuple(_tmp(v_inp) for v_inp in a.owner.inputs)
+            v._tmp = a.owner.perform(*inputs_tmp)
+        # _tmp attributes are extracted from outputs then deleted from all
+        downstream_values = tuple(v._tmp for v in self.downstream_values)
+        values += self.sorted_values
+        for v in values:
+            del v._obj
+        return downstream_values
+
+def stack_upstream(stage):
+    upstream_total_size = sum([v.size for v in stage.upstream_values])
+    stacked_upstream_array = stencil_array((upstream_total_size,))
+    stacked_upstream_value = stacked_upstream_array.value
+    # split stacked upstream array
+    upstream_arrays = []
+    i_ptr = 0
+    for v in stage.upstream_values:
+        array_slice = stacked_upstream_array[i_ptr:i_ptr+v.size]
+        upstream_arrays.append(array_slice.reshape(v.shape))
+        i_ptr += v.size
+    # construct stage based on stacked upstream values
+    triburary_arrays = [stencil_array(v.shape) for v in stage.upstream_values]
+    downstream_arrays = stage(upstream_arrays, triburary_arrays)
+    downstream_values = [a.value for a in downstream_arrays]
+    return AtomicStage([stacked_upstream_value], downstream_values)
+
+def stack_downstream(stage):
+    downstream_total_size = sum([v.size for v in stage.downstream_values])
+    stacked_downstream_array = stencil_array((downstream_total_size,))
+    i_ptr = 0
+    for v in stage.downstream_values:
+        downstream_array = stencil_array(v).reshape((v.size,))
+        stacked_upstream_array[i_ptr:i_ptr+v.size] = downstream_array
+    return AtomicStage(stage.upstream_values, [stacked_downstream_array.value])
 
 class Stage(object):
     def __init__(self, values, globalInputs, globalOutputs, k, K):
