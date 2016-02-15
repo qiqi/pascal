@@ -500,7 +500,17 @@ class _TestEuler(unittest.TestCase):
         inp = (w0,)
         z = G.zeros(())
         for stage in stages:
-            inp = stage(inp, (z,))
+            if stage.triburary_values:
+                inp = stage(inp, [z])
+            else:
+                inp = stage(inp)
+            if len(inp) > 1:
+                assert len(inp) == 2
+                n0, n1 = outp[0].size, outp[1].size
+                inp = zeros(n0 + n1)
+                inp[:n0] = outp[0]
+                inp[n0:] = outp[1]
+                inp = [inp]
 
         result, = inp
         err = result - step(w0)

@@ -63,7 +63,7 @@ class Stages(object):
         decomp_inputs = tuple(sa2d_decomp.stencil_array(inp.shape)
                               for inp in mpi_inputs)
         t0 = time.time()
-        self.stages = sa2d_decomp.decompose(func, decomp_inputs)
+        self.stages = sa2d_decomp.decompose_function(func, decomp_inputs)
         print('decompose takes ', time.time() - t0)
         theano_stages = compile_stages(self.stages, mpi_inputs)
         print('compile takes ', time.time() - t0)
