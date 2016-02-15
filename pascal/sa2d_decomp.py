@@ -392,217 +392,174 @@ def zeros(shape=()):
 #                                decomposition                                 #
 # ============================================================================ #
 
-class DecomposedStages(object):
+_LP = collections.namedtuple('LP', 'c, bounds, A_eq, A_le, b_eq, b_le')
+_LPRes = collections.namedtuple('LPRes', 'x, obj, status')
+
+# ---------------------------------------------------------------------------- #
+
+def _build_linear_program(all_values, upstream_values, downstream_values):
     '''
+    solution: [c, k, g, K]
+    c: length n array of integers, the stage in which a value is created;
+    k: length n array of integers, the stage in which a value is killed;
+    g: length n array of 0 and 1's, bareness of array,
+       1 indicating it is bare, i.e, has no neighbors upon creation;
+       0 indicating it has one layer of neighbor upon creation.
     '''
-    # TODO: Add comments
+    def add_eq(A_c, A_k, A_g, A_K, b):
+        A_eq.append(np.hstack([A_c, A_k, A_g, A_K]))
+        b_eq.append(b)
 
-    LP = collections.namedtuple('LP', 'c, bounds, A_eq, A_le, b_eq, b_le')
-    LPRes = collections.namedtuple('LPRes', 'x, obj, status')
+    def add_le(A_c, A_k, A_g, A_K, b):
+        A_le.append(np.hstack([A_c, A_k, A_g, A_K]))
+        b_le.append(b)
 
-    # --------------------------------------------------------------------- #
+    n = len(all_values)
+    A_eq, A_le, b_eq, b_le = [], [], [], []
+    # build bounds
+    non_negative = (0, GLOBAL_MAX_STAGES)
+    bounds = [non_negative] * (2 * n) + [(0, 1)] * n + [non_negative]
+    # build constraints
+    z = np.zeros(n)
+    e = np.eye(n)
+    for a in upstream_values:
+        i = a._valueId
+        # an input value is born at Stage 0
+        add_eq(e[i], z, z, 0, 0)
+    for a in downstream_values:
+        i = a._valueId
+        # an output value is killed at Stage K (last stage)
+        add_eq(z, e[i], z, -1, 0)
+    for a in all_values:
+        i = a._valueId
+        # a value cannot be killed before it is born
+        add_le(e[i], -e[i], z, 0, 0)
+        if a.owner:
+            for b in a.owner.inputs:
+                if _is_like_sa_value(b):
+                    assert b in all_values
+                    j = b._valueId
+                    # a child cannot be born before its parent is born
+                    add_le(e[j] - e[i], z, z, 0, 0)
+                    # a child cannot be born after its parent is killed
+                    add_le(e[i], -e[j], z, 0, 0)
+                    if a.owner.access_neighbor:
+                        # a bare parent must wait to next stage
+                        # to produce any child through neibhor access
+                        add_le(e[j] - e[i], z, e[j] - e[i], 0, -1)
+                    else:
+                        # a bare parent produces bare children
+                        # during its creating stage
+                        add_le(e[j] - e[i], z, e[j] - e[i], 0, 0)
+            if a.owner.access_neighbor:
+                # a child born through neighbor access is bare
+                add_eq(z, z, e[i], 0, 1)
+    w = np.array([a.size for a in all_values])
+    c = np.hstack([-w, w, z, 0])
+    return _LP(np.array(c, float), np.array(bounds, float),
+               np.array(A_eq, float), np.array(A_le, float),
+               np.array(b_eq, float), np.array(b_le, float))
 
-    def _assign_id_to_values(self):
-        '''
-        Assign a zero-based id to each value between (and include)
-        upstream and downstream values
-        '''
-        self.values = []
-        def set_value_id(v):
-            if _is_like_sa_value(v) and v not in self.values:
-                v._valueId = len(self.values)
-                self.values.append(v)
-                if v not in self.upstream_values and v.owner:
-                    for inp in v.owner.inputs:
-                        set_value_id(inp)
-        for v in self.downstream_values:
-            set_value_id(v)
+# ---------------------------------------------------------------------------- #
 
-    # --------------------------------------------------------------------- #
+def _solve_linear_program_glpk(linear_program, verbose):
+    c, bounds, A_eq, A_le, b_eq, b_le = linear_program
+    lp = pulp.LpProblem("Decomposition", pulp.LpMinimize)
+    # add the variables
+    x = []
+    for i, (l, u) in enumerate(bounds):
+        if u == GLOBAL_MAX_STAGES:
+            x.append(pulp.LpVariable('x'+str(i), l, None))
+        else:
+            x.append(pulp.LpVariable('x'+str(i), l, u))
+    # specify the objective
+    assert len(x) == len(c)
+    lp += builtins.sum(c[i] * x[i] for i in range(len(x)))
+    # add the constraints
+    for i in range(b_le.size):
+        j, = A_le[i].nonzero()
+        lp += builtins.sum(A_le[i, jj] * x[jj] for jj in j) <= b_le[i]
+    for i in range(b_eq.size):
+        j, = A_eq[i].nonzero()
+        lp += builtins.sum(A_eq[i, jj] * x[jj] for jj in j) == b_eq[i]
+    # solve with GLPK
+    s = pulp.GLPK(mip=0, msg=int(verbose > 1))
+    s.actualSolve(lp)
+    # extract solution
+    x = [pulp.value(xi) for xi in x]
+    assert all([abs(xi - round(xi)) < 1E-12 for xi in x]), \
+           'Linear Program Finished with non-integer results'
+    x = np.array(np.around(x), int)
+    objective = int(round(pulp.value(lp.objective)))
+    status = pulp.LpStatus[lp.status]
+    return _LPRes(x, objective, status)
 
-    def _build_linear_program(self):
-        '''
-        solution: [c, k, g, K]
-        c: length n array of integers, the stage in which a value is created;
-        k: length n array of integers, the stage in which a value is killed;
-        g: length n array of 0 and 1's, bareness of array,
-           1 indicating it is bare, i.e, has no neighbors upon creation;
-           0 indicating it has one layer of neighbor upon creation.
-        '''
-        A_eq, A_le, b_eq, b_le = [], [], [], []
+# ---------------------------------------------------------------------------- #
 
-        def add_eq(A_c, A_k, A_g, A_K, b):
-            A_eq.append(np.hstack([A_c, A_k, A_g, A_K]))
-            b_eq.append(b)
+def _solve_linear_program(linear_program, verbose):
+    if verbose:
+        lpSize = (len(linear_program.c),
+                  len(linear_program.b_eq) + len(linear_program.b_le))
+        print('\nDecomposing update formula')
+        print('\tsolving {0}x{1} linear program'.format(*lpSize))
+        sys.stdout.flush()
+        t0 = time.time()
+    res = _solve_linear_program_glpk(linear_program, verbose)
+    if verbose:
+        print('Decomposed into {0} atomic stages'.format(res.x[-1] + 1))
+        print('\tobjective function = {0}'.format(res.obj))
+        print('\tstatus: ' + res.status)
+        print('\ttime: {0:f}'.format(time.time() - t0))
+        sys.stdout.flush()
+    return res
 
-        def add_le(A_c, A_k, A_g, A_K, b):
-            A_le.append(np.hstack([A_c, A_k, A_g, A_K]))
-            b_le.append(b)
+# ---------------------------------------------------------------------------- #
 
-        n = len(self.values)
+def _assign_lp_results_to_values(lp_result, values):
+    c, k, g = lp_result.x[:-1].reshape([3,-1])
+    assert c.size == len(values)
+    assert g.max() <= 1
+    for i, a in enumerate(values):
+        a = values[i]
+        a.create_stage = int(round(c[i]))
+        a.kill_stage = int(round(k[i]))
+        a.has_neighbor = (round(g[i]) == 0)
+    num_stages = int(lp_result.x[-1]) + 1
+    return num_stages
 
-        # build bounds
-        non_negative = (0, GLOBAL_MAX_STAGES)
-        bounds = [non_negative] * (2 * n) + [(0, 1)] * n + [non_negative]
+# ---------------------------------------------------------------------------- #
 
-        # build constraints
-        z = np.zeros(n)
-        e = np.eye(n)
+def decompose(upstream_values, downstream_values, verbose=True):
+    values, triburary_values = discover_values(
+            upstream_values, downstream_values)
+    all_values = (list(values) +
+                  list(triburary_values) +
+                  list(upstream_values))
+    for i, v in enumerate(all_values):
+        v._valueId = i
+    lp = _build_linear_program(all_values, upstream_values, downstream_values)
+    lp_res = _solve_linear_program(lp, verbose)
+    num_stages = _assign_lp_results_to_values(lp_res, all_values)
+    for v in all_values:
+        del v._valueId
+    # create each atomic stage from its upstream and downstream values
+    stages = []
+    stage_upstream = list(upstream_values)
+    for k in range(1, num_stages):
+        stage_downstream = [v for v in all_values
+                            if v.create_stage < k and v.kill_stage >= k]
+        stages.append(AtomicStage(stage_upstream, stage_downstream))
+        stage_upstream = stage_downstream
+    stage_downstream = list(downstream_values)
+    stages.append(AtomicStage(stage_upstream, stage_downstream))
+    # stack inter-stage values for more efficient halo exchange
+    for k in range(num_stages - 1):
+        stages[k] = stack_downstream(stages[k])
+    for k in range(1, num_stages):
+        stages[k] = stack_upstream(stages[k])
+    return stages
 
-        for a in self.upstream_values:
-            i = a._valueId
-            # an input value is born at Stage 0
-            add_eq(e[i], z, z, 0, 0)
-
-        for a in self.downstream_values:
-            i = a._valueId
-            # an output value is killed at Stage K (last stage)
-            add_eq(z, e[i], z, -1, 0)
-
-        for a in self.values:
-            i = a._valueId
-            # a value cannot be killed before it is born
-            add_le(e[i], -e[i], z, 0, 0)
-
-            if a.owner:
-                for b in a.owner.inputs:
-                    if _is_like_sa_value(b):
-                        assert b in self.values
-                        j = b._valueId
-                        # a child cannot be born before its parent is born
-                        add_le(e[j] - e[i], z, z, 0, 0)
-                        # a child cannot be born after its parent is killed
-                        add_le(e[i], -e[j], z, 0, 0)
-                        if a.owner.access_neighbor:
-                            # a bare parent must wait to next stage
-                            # to produce any child through neibhor access
-                            add_le(e[j] - e[i], z, e[j] - e[i], 0, -1)
-                        else:
-                            # a bare parent produces bare children
-                            # during its creating stage
-                            add_le(e[j] - e[i], z, e[j] - e[i], 0, 0)
-                if a.owner.access_neighbor:
-                    # a child born through neighbor access is bare
-                    add_eq(z, z, e[i], 0, 1)
-
-        w = np.array([a.size for a in self.values])
-        c = np.hstack([-w, w, z, 0])
-
-        self._linear_program = self.LP(
-                np.array(c, float), np.array(bounds, float),
-                np.array(A_eq, float), np.array(A_le, float),
-                np.array(b_eq, float), np.array(b_le, float))
-
-    # --------------------------------------------------------------------- #
-
-    def _solve_linear_program_glpk(self, verbose):
-        c, bounds, A_eq, A_le, b_eq, b_le = self._linear_program
-
-        lp = pulp.LpProblem("Decomposition", pulp.LpMinimize)
-
-        x = []
-        for i, (l, u) in enumerate(bounds):
-            if u == GLOBAL_MAX_STAGES:
-                x.append(pulp.LpVariable('x'+str(i), l, None))
-            else:
-                x.append(pulp.LpVariable('x'+str(i), l, u))
-
-        assert len(x) == len(c)
-        lp += builtins.sum(c[i] * x[i] for i in range(len(x)))
-
-        for i in range(b_le.size):
-            j, = A_le[i].nonzero()
-            lp += builtins.sum(A_le[i, jj] * x[jj] for jj in j) <= b_le[i]
-        for i in range(b_eq.size):
-            j, = A_eq[i].nonzero()
-            lp += builtins.sum(A_eq[i, jj] * x[jj] for jj in j) == b_eq[i]
-
-        s = pulp.GLPK(mip=0, msg=int(verbose > 1))
-        s.actualSolve(lp)
-
-        x = [pulp.value(xi) for xi in x]
-        assert all([abs(xi - round(xi)) < 1E-12 for xi in x]), \
-               'Linear Program Finished with non-integer results'
-
-        x = np.array(np.around(x), int)
-        objective = int(round(pulp.value(lp.objective)))
-        status = pulp.LpStatus[lp.status]
-
-        self._linear_program_result = self.LPRes(x, objective, status)
-
-    # --------------------------------------------------------------------- #
-
-    def _solve_linear_program(self, verbose):
-        if verbose:
-            lp = self._linear_program
-            lpSize = len(lp.c), len(lp.b_eq) + len(lp.b_le)
-            print('\nDecomposing update formula')
-            print('\t{0} values'.format(len(self.values)))
-            print('\tsolving {0}x{1} linear program'.format(*lpSize))
-            sys.stdout.flush()
-            t0 = time.time()
-
-        self._solve_linear_program_glpk(verbose)
-
-        if verbose:
-            res = self._linear_program_result
-            print('Decomposed into {0} atomic stages'.format(res.x[-1] + 1))
-            print('\tobjective function = {0}'.format(res.obj))
-            print('\tstatus: ' + res.status)
-            print('\ttime: {0:f}'.format(time.time() - t0))
-            sys.stdout.flush()
-
-    # --------------------------------------------------------------------- #
-
-    def _assign_lp_results_to_vars(self):
-        self.num_stages = int(self._linear_program_result.x[-1]) + 1
-        c, k, g = self._linear_program_result.x[:-1].reshape([3,-1])
-        assert c.size == len(self.values)
-        assert g.max() <= 1
-
-        for i, a in enumerate(self.values):
-            a = self.values[i]
-            a.create_stage = int(round(c[i]))
-            a.kill_stage = int(round(k[i]))
-            a.hasNeighbor = (round(g[i]) == 0)
-
-    # --------------------------------------------------------------------- #
-
-    def __init__(self, upstream_values, downstream_values, verbose=True):
-        self.upstream_values = upstream_values
-        self.downstream_values = downstream_values
-        self._assign_id_to_values()
-        self._build_linear_program()
-        self._solve_linear_program(verbose)
-        self._assign_lp_results_to_vars()
-        # create each atomic stage from its upstream and downstream values
-        self.stages = []
-        stage_upstream = list(self.upstream_values)
-        for k in range(1, self.num_stages):
-            stage_downstream = [v for v in self.values
-                                if v.create_stage < k and v.kill_stage >= k]
-            self.stages.append(AtomicStage(stage_upstream, stage_downstream))
-            stage_upstream = stage_downstream
-        stage_downstream = list(self.downstream_values)
-        self.stages.append(AtomicStage(stage_upstream, stage_downstream))
-        # stack inter-stage values for more efficient halo exchange
-        for k in range(self.num_stages - 1):
-            self.stages[k] = stack_downstream(self.stages[k])
-        for k in range(1, self.num_stages):
-            self.stages[k] = stack_upstream(self.stages[k])
-
-    # --------------------------------------------------------------------- #
-
-    def __len__(self):
-        return len(self.stages)
-
-    def __iter__(self):
-        for s in self.stages:
-            yield s
-
-    def __getitem__(self, i):
-        return self.stages[i]
-
+# ---------------------------------------------------------------------------- #
 
 def decompose_function(func, inputs, verbose=True):
     if not isinstance(inputs, tuple):
@@ -622,7 +579,7 @@ def decompose_function(func, inputs, verbose=True):
         outputs = (outputs,)
     downstream_values = tuple(out.value for out in outputs)
 
-    return DecomposedStages(upstream_values, downstream_values, verbose)
+    return decompose(upstream_values, downstream_values, verbose)
 
 
 # ============================================================================ #
@@ -766,7 +723,7 @@ class Stage(object):
     # --------------------------------------------------------------------- #
 
     def _has_nbr(self, out):
-        return out.create_stage < self.k or out.hasNeighbor
+        return out.create_stage < self.k or out.has_neighbor
 
     @property
     def output_size_no_nbr(self):
@@ -778,7 +735,7 @@ class Stage(object):
                 out.size for out in self.outputs if self._has_nbr(out))
 
     def _is_old_nbr(self, inp):
-        return (inp.create_stage < self.k - 1 or inp.hasNeighbor)
+        return (inp.create_stage < self.k - 1 or inp.has_neighbor)
 
     def unstack_input(self, input_new_nbr, input_old_nbr):
         input_objects = [None] * len(self.inputs)

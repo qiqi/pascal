@@ -131,7 +131,7 @@ class _TestSimpleUpdates(unittest.TestCase):
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
 
-        self.assertEqual(stage0.triburary_values, (G_ZERO,))
+        self.assertEqual(stage0.triburary_values, [G_ZERO])
 
         Ni, Nj = 4, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
@@ -143,7 +143,6 @@ class _TestSimpleUpdates(unittest.TestCase):
 
         err = result - update(u0)
         self.assertAlmostEqual(0, G.reduce_sum((err**2).sum()))
-
 
 # ============================================================================ #
 
@@ -237,7 +236,6 @@ class _TestMultiStage(unittest.TestCase):
 
         self.assertEqual(len(heatStages), 2)
         stage0, stage1 = heatStages
-        stage_un0, stage_un1 = heatStages.unstacked_stages
 
         Ni, Nj = 16, 8
         G = sa2d_single_thread.grid2d(Ni, Nj)
@@ -293,11 +291,7 @@ def ij_np(i0, i1, j0, j1):
 def compile_stage(stage, upstream_arrays, triburary_arrays,
                   unstack_input, stack_output):
     theano_inputs = [a.value for a in upstream_arrays + triburary_arrays]
-    if unstack_input:
-        upstream_arrays = stage.unstack_input(*tuple(upstream_arrays))
     downstream_arrays = stage(upstream_arrays, triburary_arrays)
-    if stack_output:
-        downstream_arrays = stage.stack_output(downstream_arrays)
     theano_outputs = [a.value for a in downstream_arrays]
     print([a.shape for a in downstream_arrays])
     return sa2d_theano.compile(theano_inputs, theano_outputs)
@@ -384,7 +378,7 @@ class _TestTheano(unittest.TestCase):
         u0 = np.sin(i / Ni * np.pi * 2)
         f0 = u0 * 0
 
-        u1, = run_stages(heatStages, u0, {f.value: f0})
+        u1, = run_stages(heatStages, u0, {f.value: f0, G_ZERO: f0})
 
         dudt = 2 * (1 - np.cos(np.pi * 2 / Ni))
         err = u1 - u0[1:-1,1:-1] * (1 - dudt + dudt**2 / 2)
@@ -416,7 +410,7 @@ class _TestTheano(unittest.TestCase):
         u0 = np.sin(i / Ni * np.pi * 2)
         f0 = u0 * 0
 
-        u1, = run_stages(ksStages, u0, {f.value: f0})
+        u1, = run_stages(ksStages, u0, {f.value: f0, G_ZERO: f0})
 
 
 # ============================================================================ #
