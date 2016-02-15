@@ -1,4 +1,4 @@
-################################################################################
+###############################################################################
 #                                                                              #
 #       sa2d_decomp.py copyright(c) Qiqi Wang 2015 (qiqi.wang@gmail.com)       #
 #                                                                              #
@@ -555,15 +555,15 @@ class DecomposedStages(object):
     # --------------------------------------------------------------------- #
 
     def _assign_lp_results_to_vars(self):
-        self.numStages = int(self._linear_program_result.x[-1]) + 1
+        self.num_stages = int(self._linear_program_result.x[-1]) + 1
         c, k, g = self._linear_program_result.x[:-1].reshape([3,-1])
         assert c.size == len(self.values)
         assert g.max() <= 1
 
         for i, a in enumerate(self.values):
             a = self.values[i]
-            a.createStage = int(round(c[i]))
-            a.killStage = int(round(k[i]))
+            a.create_stage = int(round(c[i]))
+            a.kill_stage = int(round(k[i]))
             a.hasNeighbor = (round(g[i]) == 0)
 
     # --------------------------------------------------------------------- #
@@ -575,15 +575,21 @@ class DecomposedStages(object):
         self._build_linear_program()
         self._solve_linear_program(verbose)
         self._assign_lp_results_to_vars()
-        self.stages = [
-            Stage(
-                self.values,
-                self.upstream_values,
-                self.downstream_values,
-                k,
-                self.numStages
-            ) for k in range(self.numStages)
-        ]
+        # create each atomic stage from its upstream and downstream values
+        self.stages = []
+        stage_upstream = list(self.upstream_values)
+        for k in range(1, self.num_stages):
+            stage_downstream = [v for v in self.values
+                                if v.create_stage < k and v.kill_stage >= k]
+            self.stages.append(AtomicStage(stage_upstream, stage_downstream))
+            stage_upstream = stage_downstream
+        stage_downstream = list(self.downstream_values)
+        self.stages.append(AtomicStage(stage_upstream, stage_downstream))
+        # stack inter-stage values for more efficient halo exchange
+        for k in range(self.num_stages - 1):
+            self.stages[k] = stack_downstream(self.stages[k])
+        for k in range(1, self.num_stages):
+            self.stages[k] = stack_upstream(self.stages[k])
 
     # --------------------------------------------------------------------- #
 
@@ -625,31 +631,34 @@ def decompose_function(func, inputs, verbose=True):
 
 def discover_values(upstream_values, downstream_values):
     discovered_values = []
-    discovered_source_values = []
+    discovered_triburary_values = []
     def discover_values_from(v):
+        if not hasattr(v, 'owner'):
+            return
+        if v in upstream_values:
+            return
         if v.owner is None:
-            discovered_source_values.append(v)
-        elif v not in upstream_values:
+            if v not in discovered_triburary_values:
+                discovered_triburary_values.append(v)
+        elif v not in discovered_values:
             discovered_values.append(v)
             for v_inp in v.owner.inputs:
                 discover_values_from(v_inp)
     for v in downstream_values:
         discover_values_from(v)
-    return discovered_values, discovered_source_values
+    return discovered_values, discovered_triburary_values
 
 def sort_values(sorted_values, unsorted_values):
-    unsorted_values = copymodule.copy(values)
-    sorted_values = []
     def is_computable(v):
         return (not _is_like_sa_value(v) or
                 v in sorted_values or
                 v.owner is None)
     while len(unsorted_values):
-        removed_any = false
+        removed_any = False
         for v in unsorted_values:
             if all([is_computable(v_inp) for v_inp in v.owner.inputs]):
-                unsorted_values.remove(a)
-                ordered_values.append(v)
+                unsorted_values.remove(v)
+                sorted_values.append(v)
                 removed_any = True
         if not removed_any:
             return
@@ -666,27 +675,31 @@ class AtomicStage(object):
         self.downstream_values = copymodule.copy(downstream_values)
 
     def __call__(self, upstream_values, triburary_values=[]):
+        upstream_values = list(upstream_values)
+        triburary_values = list(triburary_values)
         # _tmp attributes are assigned to inputs
         values = self.upstream_values + self.triburary_values
         tmp_values = upstream_values + triburary_values
+        assert len(values) == len(tmp_values)
         for v, v_tmp in zip(values, tmp_values):
             assert not hasattr(v, '_tmp')
             v._tmp = v_tmp
         # _tmp attributes are computed to each value
-        _tmp = lambda v : v._obj if _is_like_sa_value(v) else v
+        _tmp = lambda v : v._tmp if _is_like_sa_value(v) else v
         for v in self.sorted_values:
             assert not hasattr(v, '_tmp')
-            inputs_tmp = tuple(_tmp(v_inp) for v_inp in a.owner.inputs)
-            v._tmp = a.owner.perform(*inputs_tmp)
+            inputs_tmp = [_tmp(v_inp) for v_inp in v.owner.inputs]
+            v._tmp = v.owner.perform(inputs_tmp)
         # _tmp attributes are extracted from outputs then deleted from all
         downstream_values = tuple(v._tmp for v in self.downstream_values)
         values += self.sorted_values
         for v in values:
-            del v._obj
+            del v._tmp
         return downstream_values
 
 def stack_upstream(stage):
-    upstream_total_size = sum([v.size for v in stage.upstream_values])
+    upstream_total_size = builtins.sum(
+            [v.size for v in stage.upstream_values])
     stacked_upstream_array = stencil_array((upstream_total_size,))
     stacked_upstream_value = stacked_upstream_array.value
     # split stacked upstream array
@@ -697,18 +710,20 @@ def stack_upstream(stage):
         upstream_arrays.append(array_slice.reshape(v.shape))
         i_ptr += v.size
     # construct stage based on stacked upstream values
-    triburary_arrays = [stencil_array(v.shape) for v in stage.upstream_values]
+    triburary_arrays = [stencil_array(v) for v in stage.triburary_values]
     downstream_arrays = stage(upstream_arrays, triburary_arrays)
     downstream_values = [a.value for a in downstream_arrays]
     return AtomicStage([stacked_upstream_value], downstream_values)
 
 def stack_downstream(stage):
-    downstream_total_size = sum([v.size for v in stage.downstream_values])
-    stacked_downstream_array = stencil_array((downstream_total_size,))
+    downstream_total_size = builtins.sum(
+            [v.size for v in stage.downstream_values])
+    stacked_downstream_array = zeros((downstream_total_size,))
     i_ptr = 0
     for v in stage.downstream_values:
-        downstream_array = stencil_array(v).reshape((v.size,))
-        stacked_upstream_array[i_ptr:i_ptr+v.size] = downstream_array
+        downstream_array_slice = stencil_array(v).reshape((v.size,))
+        stacked_downstream_array[i_ptr:i_ptr+v.size] = downstream_array_slice
+        i_ptr += v.size
     return AtomicStage(stage.upstream_values, [stacked_downstream_array.value])
 
 class Stage(object):
@@ -716,20 +731,20 @@ class Stage(object):
         assert k >= 0 and k < K
         self.k = k
 
-        isIn = lambda a: a.createStage < k and a.killStage >= k
-        isOut = lambda a: a.createStage <= k and a.killStage > k
+        isIn = lambda a: a.create_stage < k and a.kill_stage >= k
+        isOut = lambda a: a.create_stage <= k and a.kill_stage > k
 
         self.inputs = (tuple(filter(isIn, values)) if k > 0
                        else globalInputs)
         self.outputs = (tuple(filter(isOut, values)) if k < K - 1
                         else globalOutputs)
 
-        isKSource = lambda a: (a.createStage == k and
+        isKSource = lambda a: (a.create_stage == k and
                                a.owner is None and
                                a not in globalInputs)
         self.sourceValues = tuple(filter(isKSource, values))
 
-        isKVar = lambda a: (a.createStage == k and
+        isKVar = lambda a: (a.create_stage == k and
                             a.owner is not None)
         self._order_values(list(filter(isKVar, values)))
 
@@ -751,7 +766,7 @@ class Stage(object):
     # --------------------------------------------------------------------- #
 
     def _has_nbr(self, out):
-        return out.createStage < self.k or out.hasNeighbor
+        return out.create_stage < self.k or out.hasNeighbor
 
     @property
     def output_size_no_nbr(self):
@@ -763,7 +778,7 @@ class Stage(object):
                 out.size for out in self.outputs if self._has_nbr(out))
 
     def _is_old_nbr(self, inp):
-        return (inp.createStage < self.k - 1 or inp.hasNeighbor)
+        return (inp.create_stage < self.k - 1 or inp.hasNeighbor)
 
     def unstack_input(self, input_new_nbr, input_old_nbr):
         input_objects = [None] * len(self.inputs)
