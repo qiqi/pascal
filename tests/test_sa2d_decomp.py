@@ -288,8 +288,7 @@ def ij_np(i0, i1, j0, j1):
     return np.outer(np.arange(i0, i1), np.ones(j1 - j0, int)), \
            np.outer(np.ones(i1 - i0, int), np.arange(j0, j1))
 
-def compile_stage(stage, upstream_arrays, triburary_arrays,
-                  unstack_input, stack_output):
+def compile_stage(stage, upstream_arrays, triburary_arrays):
     theano_inputs = [a.value for a in upstream_arrays + triburary_arrays]
     downstream_arrays = stage(upstream_arrays, triburary_arrays)
     theano_outputs = [a.value for a in downstream_arrays]
@@ -318,8 +317,7 @@ def run_stages(stages, u0, triburary_numpy_dict):
         triburary_arrays = [triburary_sa_dict[s]
                             for s in stage.triburary_values]
         theano_function = compile_stage(
-                stage, upstream_arrays, triburary_arrays,
-                k > 0, k < len(stages)-1)
+                stage, upstream_arrays, triburary_arrays)
 
         triburary_numpy_values = [triburary_numpy_dict[s]
                                for s in stage.triburary_values]
@@ -504,13 +502,6 @@ class _TestEuler(unittest.TestCase):
                 inp = stage(inp, [z])
             else:
                 inp = stage(inp)
-            if len(inp) > 1:
-                assert len(inp) == 2
-                n0, n1 = outp[0].size, outp[1].size
-                inp = zeros(n0 + n1)
-                inp[:n0] = outp[0]
-                inp[n0:] = outp[1]
-                inp = [inp]
 
         result, = inp
         err = result - step(w0)

@@ -51,41 +51,58 @@ def compile_stages(stages, inputs):
 
     return compiled_stages
 
+class MpiStage(object):
+    def __init__(self, atomic_stage, grid):
+        '''
+        Takes sa2d_decomp.AtomicStage as input, compile theano function,
+        and send it via commander
+        '''
+
+    def __call__(self, mpi_inputs):
+        '''
+        return mpi_outputs
+        '''
+
+def _theano_stages_as_custom_functions(grid, theano_stages):
+    common_name = 'Stages({0})'.format(str(uuid.uuid1()))
+    stage_names = [common_name + '[' + str(i) + ']'
+                        for i in range(len(theano_stages))]
+    for stage_name, stage in zip(stage_names, theano_stages):
+        grid._commander.set_custom_func(stage_name, stage)
+    return stage_names
 
 class Stages(object):
     def __init__(self, func, mpi_inputs):
         if _is_like_sa(mpi_inputs):
             mpi_inputs = [mpi_inputs]
-        self.grid = mpi_inputs[0].grid
-
-        self.G_ZERO = self.grid.zeros()
-
         decomp_inputs = tuple(sa2d_decomp.stencil_array(inp.shape)
                               for inp in mpi_inputs)
-        t0 = time.time()
         self.stages = sa2d_decomp.decompose_function(func, decomp_inputs)
-        print('decompose takes ', time.time() - t0)
         theano_stages = compile_stages(self.stages, mpi_inputs)
-        print('compile takes ', time.time() - t0)
+        self.grid = mpi_inputs[0].grid
+        self.stage_names = _theano_stages_as_custom_functions(
+                self.grid, theano_stages)
+        self._G_ZERO = self.grid.zeros()
 
-        common_name = str(uuid.uuid1())
-        n_stages = len(theano_stages)
-        self.stage_names = [common_name + '[' + str(i) + ']'
-                            for i in range(n_stages)]
-        for stage_name, stage in zip(self.stage_names, theano_stages):
-            self.grid._commander.set_custom_func(stage_name, stage)
+    def _reference(self, v):
+        if hasattr(v, '_reference'):
+            return v._reference._var
+        else:
+            assert v is sa2d_decomp.G_ZERO
+            return self._G_ZERO._var
 
     def __call__(self, mpi_inputs):
         if _is_like_sa(mpi_inputs):
             mpi_inputs = [mpi_inputs]
-        stage_in = [inp._var for inp in mpi_inputs]
+        inputs = [inp._var for inp in mpi_inputs]
+        for stage_name, stage in zip(self.stage_names, self.stages):
+            inputs.extend(self._reference(v) for v in stage.triburary_values)
 
         n_stages = len(self.stages)
         for k in range(n_stages):
             stage_name = self.stage_names[k]
             stage = self.stages[k]
 
-            n_input = len(stage_in)
             for s in stage.sourceValues:
                 if hasattr(s, '_reference'):
                     stage_in.append(s._reference._var)
