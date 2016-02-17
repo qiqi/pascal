@@ -126,7 +126,7 @@ class _TestSimpleUpdates(unittest.TestCase):
             return v
 
         G = sys.modules[__name__]
-        stages = decompose_function(update, [0,0])
+        stages = decompose_function(update, np.zeros(2))
 
         self.assertEqual(len(stages), 1)
         stage0 = stages[0]
@@ -596,6 +596,7 @@ class _TestEuler(unittest.TestCase):
         self.assertEqual(u1.shape, (Ni, Nj, 4))
 
 
+_TestSimpleUpdates().testSetGetItem()
 ################################################################################
 ################################################################################
 ################################################################################
