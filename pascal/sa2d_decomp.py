@@ -562,7 +562,7 @@ def decompose(upstream_values, downstream_values, verbose=True):
 # ---------------------------------------------------------------------------- #
 
 def decompose_function(func, inputs, verbose=True):
-    if not isinstance(inputs, tuple):
+    if not isinstance(inputs, (tuple, list)):
         inputs = (inputs,)
 
     def _tidy_input(inp):
@@ -573,12 +573,10 @@ def decompose_function(func, inputs, verbose=True):
 
     inputs = tuple(map(_tidy_input, inputs))
     upstream_values = tuple(inp.value for inp in inputs)
-
     outputs = func(*inputs)
     if not isinstance(outputs, tuple):
         outputs = (outputs,)
     downstream_values = tuple(out.value for out in outputs)
-
     return decompose(upstream_values, downstream_values, verbose)
 
 

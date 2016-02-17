@@ -20,20 +20,17 @@ def test_heat_midpoint():
         return u + dt * heat(uh)
 
     u = G.ones() + G.sin(G.i * np.pi / G.nx * 2)
-    s = Stages(heatMidpoint, u)
-    t0 = time.time()
+    s0, s1 = decompose_function(heatMidpoint, [u])
 
     n = 100
-
     for i in range(n):
-        u = s(u)
-    u_compiled = u
+        u = s1(s0(u))
+    u_compiled = u[0]
 
     u = G.ones() + G.sin(G.i * np.pi / G.nx * 2)
     for i in range(n):
         u = heatMidpoint(u)
     assert G.reduce_sum((u - u_compiled)**2) < 1E-12
-
 
 def test_euler_tunnel():
     DISS_COEFF = 0.0025
@@ -119,11 +116,13 @@ def test_euler_tunnel():
 
     print('constants and initial condition: ', time.time() - t0)
 
-    s = Stages(step, w)
+    stages = decompose_function(step, [w])
     print('build stages: ', time.time() - t0)
 
     for i in range(n):
-        w = s(w)
+        for s in stages:
+            w = s(w)
+    w = w[0]
 
     print('run stages: ', time.time() - t0)
     wsum = G.reduce_sum(w)
@@ -134,5 +133,3 @@ def test_euler_tunnel():
         w = step(w)
     wsum1 = G.reduce_sum(w)
     assert abs(wsum - wsum1).max() < 1E-12
-
-# test_euler_tunnel()

@@ -51,18 +51,6 @@ def compile_stages(stages, inputs):
 
     return compiled_stages
 
-class MpiStage(object):
-    def __init__(self, atomic_stage, grid):
-        '''
-        Takes sa2d_decomp.AtomicStage as input, compile theano function,
-        and send it via commander
-        '''
-
-    def __call__(self, mpi_inputs):
-        '''
-        return mpi_outputs
-        '''
-
 def _theano_stages_as_custom_functions(grid, theano_stages):
     common_name = 'Stages({0})'.format(str(uuid.uuid1()))
     stage_names = [common_name + '[' + str(i) + ']'
@@ -70,6 +58,7 @@ def _theano_stages_as_custom_functions(grid, theano_stages):
     for stage_name, stage in zip(stage_names, theano_stages):
         grid._commander.set_custom_func(stage_name, stage)
     return stage_names
+
 
 class Stages(object):
     def __init__(self, func, mpi_inputs):
@@ -83,13 +72,6 @@ class Stages(object):
         self.stage_names = _theano_stages_as_custom_functions(
                 self.grid, theano_stages)
         self._G_ZERO = self.grid.zeros()
-
-    def _reference(self, v):
-        if hasattr(v, '_reference'):
-            return v._reference._var
-        else:
-            assert v is sa2d_decomp.G_ZERO
-            return self._G_ZERO._var
 
     def __call__(self, mpi_inputs):
         if _is_like_sa(mpi_inputs):
@@ -145,6 +127,66 @@ class Stages(object):
             return outputs[0]
         else:
             return outputs
+
+
+
+
+
+
+
+class MpiStage(object):
+    def __init__(self, stage, grid):
+        '''
+        Takes sa2d_decomp.AtomicStage as input, compile theano function,
+        and send it via commander
+        '''
+        self.grid = grid
+        self.upstream_values = stage.upstream_values
+        self.triburary_values = stage.triburary_values
+        self.downstream_values = stage.downstream_values
+        theano_function = self._compile_theano_function(stage)
+        self.stage_name = str(uuid.uuid1())
+        grid._commander.set_custom_func(self.stage_name, theano_function)
+        self._G_ZERO = grid.zeros()
+
+    def _compile_theano_function(self, stage):
+        upstream_arrays = [sa2d_theano.stencil_array(None, v.shape, True)
+                           for v in self.upstream_values]
+        triburary_arrays = [sa2d_theano.stencil_array(None, v.shape, True)
+                            for v in self.triburary_values]
+        theano_inputs = [a.value for a in upstream_arrays + triburary_arrays]
+        downstream_arrays = stage(upstream_arrays, triburary_arrays)
+        theano_outputs = [a.value for a in downstream_arrays]
+        return sa2d_theano.compile(theano_inputs, theano_outputs)
+
+    def _reference(self, v):
+        if hasattr(v, '_reference'):
+            return v._reference
+        else:
+            assert v is sa2d_decomp.G_ZERO
+            return self._G_ZERO
+
+    def __call__(self, mpi_inputs):
+        '''
+        return mpi_outputs
+        '''
+        if _is_like_sa(mpi_inputs):
+            mpi_inputs = [mpi_inputs]
+        inputs = (list(mpi_inputs) +
+                  [self._reference(v) for v in self.triburary_values])
+        outputs = [self.grid._array(commander.WorkerVariable(), v.shape)
+                   for v in self.downstream_values]
+        self.grid._commander.func(
+                self.stage_name,
+                [a._var for a in inputs],
+                result_var=[a._var for a in outputs],
+                return_result=False)
+        return outputs
+
+def decompose_function(func, mpi_inputs, verbose=True):
+    grid = mpi_inputs[0].grid
+    stages = sa2d_decomp.decompose_function(func, mpi_inputs, verbose)
+    return [MpiStage(s, grid) for s in stages]
 
 ################################################################################
 ################################################################################
