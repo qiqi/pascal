@@ -146,7 +146,7 @@ class grid2d(object):
         Define custom functions required by methods
         '''
         commander = self._commander
-        commander.set_custom_func('make_worker_variable',
+        commander.set_custom_func('add_var_numpy',
                 lambda ZERO, x: x + ZERO.reshape(ZERO.shape + (1,) * x.ndim))
         commander.set_custom_func('reshape',
                 lambda x, shape: x.reshape(x.shape[:2] + shape))
@@ -231,7 +231,7 @@ class grid2d(object):
         out : an array of zeros managed by the current grid.
         '''
         z = np.zeros(shape)
-        res = self._func('make_worker_variable', (commander.ZERO, z))
+        res = self._func('add_var_numpy', (commander.ZERO, z))
         return self._array(res, z.shape)
 
     def ones(self, shape=()):
@@ -248,7 +248,7 @@ class grid2d(object):
         out : an array of ones managed by the current grid.
         '''
         o = np.ones(shape)
-        res = self._func('make_worker_variable', (commander.ZERO, o))
+        res = self._func('add_var_numpy', (commander.ZERO, o))
         return self._array(res, o.shape)
 
     @property
