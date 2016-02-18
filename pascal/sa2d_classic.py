@@ -72,7 +72,7 @@ def decompose_function(func, mpi_inputs, verbose=True, num_procs=None):
     grid = mpi_inputs[0].grid
     stages = sa2d_decomp.decompose_function(func, mpi_inputs, verbose)
     pickled_stages = map(dill.dumps, stages)
-    pool = multiprocessing.Pool(4)
+    pool = multiprocessing.Pool(num_procs)
     compiled_stages = pool.map(compile_stage, pickled_stages)
     # compiled_stages = [compile_stage(s) for s in pickled_stages]
     return [Stage(s, f, grid) for s, f in zip(stages, compiled_stages)]
