@@ -110,7 +110,7 @@ def test_euler_tunnel():
     obstacle = G.exp(-((x**2 + y**2) / 1)**64)
     fan = 2 * G.cos((x / Lx + 0.2) * np.pi)**64
 
-    n = 100
+    n = 20
 
     w = G.zeros() + w0
 
