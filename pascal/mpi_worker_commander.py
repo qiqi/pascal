@@ -6,6 +6,7 @@
 
 import os
 import sys
+import time
 import types
 import numbers
 import doctest
@@ -292,9 +293,10 @@ class MPI_Commander(object):
 
     def set_custom_func(self, name, func):
         if isinstance(func, types.FunctionType):
-            func = func.__code__
-        args = (name, dill.dumps(func, protocol=dill.HIGHEST_PROTOCOL))
-        self._broadcast_to_workers(('set_custom_func', args, False))
+            func = dill.dumps(func.__code__, protocol=dill.HIGHEST_PROTOCOL)
+        elif not isinstance(func, bytes):
+            func = dill.dumps(func, protocol=dill.HIGHEST_PROTOCOL)
+        self._broadcast_to_workers(('set_custom_func', (name, func), False))
 
     # -------------------------------------------------------------------- #
 

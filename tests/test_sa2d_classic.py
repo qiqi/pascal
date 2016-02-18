@@ -133,3 +133,4 @@ def test_euler_tunnel():
         w = step(w)
     wsum1 = G.reduce_sum(w)
     assert abs(wsum - wsum1).max() < 1E-12
+

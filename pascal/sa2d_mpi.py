@@ -5,6 +5,7 @@
 ################################################################################
 
 import sys
+import time
 import numbers
 import weakref
 import doctest
