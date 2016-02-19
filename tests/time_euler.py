@@ -90,7 +90,7 @@ y = (G.j + 0.5) * dy - 0.5 * Ly
 obstacle = G.exp(-((x**2 + y**2) / 1)**64)
 fan = 2 * G.cos((x / Lx + 0.2) * np.pi)**64
 
-n = 1000
+n = 100
 
 w = G.zeros() + w0
 print('building grid2d: ', time.time() - t0)

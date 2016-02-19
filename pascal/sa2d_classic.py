@@ -68,7 +68,10 @@ class Stage(object):
         return outputs
 
 def decompose_function(func, mpi_inputs, verbose=True, num_procs=None):
-    grid = mpi_inputs[0].grid
+    if hasattr(mpi_inputs, 'grid'):
+        grid = mpi_inputs.grid
+    else:
+        grid = mpi_inputs[0].grid
     stages = sa2d_decomp.decompose_function(func, mpi_inputs, verbose)
     pickled_stages = map(dill.dumps, stages)
     pool = multiprocessing.Pool(num_procs)
@@ -84,12 +87,14 @@ class timestep(object):
 
     def __call__(self, mpi_inputs):
         if not hasattr(self, 'stages'):
+            t0 = time.time()
             self.stages = decompose_function(
                     self.func,
                     mpi_inputs,
                     self.verbose,
                     self.num_procs)
             self.is_return_list = isinstance(self.func(mpi_inputs), list)
+            print('compilation takes ', time.time() - t0)
         for s in self.stages:
             mpi_inputs = s(mpi_inputs)
         if self.is_return_list:
