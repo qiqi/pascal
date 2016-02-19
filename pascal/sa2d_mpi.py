@@ -195,10 +195,9 @@ class grid2d(object):
         result = commander.WorkerVariable()
         if is_nonuniform_args:
             self._commander.func_nonuniform_args(func, args, kwargs,
-                    result_var=result, return_result=False)
+                                                 result_var=result)
         else:
-            self._commander.func(func, args, kwargs, result_var=result,
-                                 return_result=False)
+            self._commander.func(func, args, kwargs, result_var=result)
         return result
 
     # -------------------------------------------------------------------- #
@@ -593,7 +592,7 @@ class stencil_array(object):
     def _method(self, method_name, args=(), kwargs={}):
         result = commander.WorkerVariable()
         self.grid._commander.method(self._var, method_name, args, kwargs,
-                result_var=result, return_result=False)
+                                    result_var=result)
         return result
 
     # -------------------------------------------------------------------- #
@@ -632,8 +631,7 @@ class stencil_array(object):
         if not isinstance(ind, tuple):
             ind = (ind,)
         ind = (slice(None), slice(None)) + ind
-        self.grid._commander.method(self._var, '__setitem__', (ind, a._var),
-                return_result=False)
+        self.grid._commander.method(self._var, '__setitem__', (ind, a._var))
 
     # -------------------------------------------------------------------- #
     #                         access spatial neighbors                     #

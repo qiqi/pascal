@@ -66,6 +66,7 @@ def rhs(w):
 
     return rhs_w
 
+@timestep
 def step(w):
     dw0 = -dt * rhs(w)
     dw1 = -dt * rhs(w + 0.5 * dw0)
@@ -73,8 +74,15 @@ def step(w):
     dw3 = -dt * rhs(w + dw2)
     return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
+def raw_step(w):
+    dw0 = -dt * rhs(w)
+    dw1 = -dt * rhs(w + 0.5 * dw0)
+    dw2 = -dt * rhs(w + 0.5 * dw1)
+    dw3 = -dt * rhs(w + dw2)
+    return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
+
 t0 = time.time()
-G = grid2d(Ni, Nj, 2)
+G = grid2d(Ni, Nj, 4)
 
 x = (G.i + 0.5) * dx - 0.2 * Lx
 y = (G.j + 0.5) * dy - 0.5 * Ly
@@ -82,18 +90,13 @@ y = (G.j + 0.5) * dy - 0.5 * Ly
 obstacle = G.exp(-((x**2 + y**2) / 1)**64)
 fan = 2 * G.cos((x / Lx + 0.2) * np.pi)**64
 
-n = 100
+n = 1000
 
 w = G.zeros() + w0
 print('building grid2d: ', time.time() - t0)
 
-stages = decompose_function(step, [w])
-print('build stages: ', time.time() - t0)
-
 for i in range(n):
-    for s in stages:
-        w = s(w)
-w = w[0]
+    w = step(w)
 
 print('run stages: ', time.time() - t0)
 wsum = G.reduce_sum(w)
@@ -101,7 +104,9 @@ print('reduce_sum: ', time.time() - t0)
 
 w = G.zeros() + w0
 for i in range(n):
-    w = step(w)
+    w = raw_step(w)
+print('run stages: ', time.time() - t0)
 wsum1 = G.reduce_sum(w)
+print('reduce_sum: ', time.time() - t0)
 assert abs(wsum - wsum1).max() < 1E-12
 

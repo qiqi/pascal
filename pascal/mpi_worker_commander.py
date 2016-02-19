@@ -22,8 +22,6 @@ from mpi4py import MPI
 
 sys.setrecursionlimit(50000)  # for pickling big theano functions
 
-_DEBUG_MODE_ = False # force all calls to return to commander
-
 #==============================================================================#
 #                                                                              #
 #==============================================================================#
@@ -145,6 +143,7 @@ class MPI_Worker(object):
             return result
         elif is_worker_variable(result_var):
             assert isinstance(result, np.ndarray)
+            assert np.all(np.isfinite(result))
             assert result.ndim >= 2
             ni, nj = self.i.shape[0] - 2, self.i.shape[1] - 2
             if result.shape[:2] != (ni + 2, nj + 2):
@@ -213,22 +212,15 @@ def mpi_worker_main():
         elif next_task_list == 'scatter':
             next_task_list = command_comm.scatter(None)
         try:
-            method_name, args, return_result = next_task_list
+            method_name, args = next_task_list
             assert hasattr(worker, method_name), \
                    'Worker does not have method named: {0}'.format(method_name)
             worker_method = getattr(worker, method_name)
             return_val = worker_method(*args)
-            if return_result:
-                command_comm.gather(return_val, 0)
+            command_comm.gather(return_val, 0)
         except Exception as e:
-            if return_result:
-                e.traceback = traceback.format_exc()
-                command_comm.gather(e, 0)
-            else:
-                sys.stderr.write('\nError on MPI_Worker {0}:{1}\n{2}\n'.format(
-                    command_comm.rank, e, traceback.format_exc()))
-                sys.stdout.write('\nError on MPI_Worker {0}:{1}\n{2}\n'.format(
-                    command_comm.rank, e, traceback.format_exc()))
+            e.traceback = traceback.format_exc()
+            command_comm.gather(e, 0)
 
 
 #==============================================================================#
@@ -296,48 +288,40 @@ class MPI_Commander(object):
             func = dill.dumps(func.__code__, protocol=dill.HIGHEST_PROTOCOL)
         elif not isinstance(func, bytes):
             func = dill.dumps(func, protocol=dill.HIGHEST_PROTOCOL)
-        self._broadcast_to_workers(('set_custom_func', (name, func), False))
+        self._broadcast_to_workers(('set_custom_func', (name, func)))
+        self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
 
-    def func(self, func, args=(), kwargs={},
-             result_var=None, return_result=True):
+    def func(self, func, args=(), kwargs={}, result_var=None):
         args = (func, args, kwargs, result_var)
-        ret_res = return_result or _DEBUG_MODE_
-        self._broadcast_to_workers(('func', args, ret_res))
-        if ret_res:
-            res = self._gather_from_workers()
-            return res if return_result else None
+        self._broadcast_to_workers(('func', args))
+        return self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
 
     def func_nonuniform_args(self, func, nonuniform_args=(), kwargs={},
-             result_var=None, return_result=True):
+                             result_var=None):
         assert len(nonuniform_args) == len(self.iRanges) * len(self.jRanges)
-        ret_res = return_result or _DEBUG_MODE_
-        data = tuple(('func', (func, args, kwargs, result_var), ret_res) \
+        data = tuple(('func', (func, args, kwargs, result_var)) \
                      for args in nonuniform_args)
         self._scatter_to_workers(data)
-        if ret_res:
-            res = self._gather_from_workers()
-            return res if return_result else None
+        return self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
 
     def method(self, variable, method_name, args=(), kwargs={},
-               result_var=None, return_result=True):
+               result_var=None):
         args = (variable, method_name, args, kwargs, result_var)
-        ret_res = return_result or _DEBUG_MODE_
-        self._broadcast_to_workers(('method', args, ret_res))
-        if ret_res:
-            res = self._gather_from_workers()
-            return res if return_result else None
+        self._broadcast_to_workers(('method', args))
+        return self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
 
     def delete_variable(self, variable):
         args = (variable,)
-        self._broadcast_to_workers(('delete_variable', args, False))
+        self._broadcast_to_workers(('delete_variable', args))
+        self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
 

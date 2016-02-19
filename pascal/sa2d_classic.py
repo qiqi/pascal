@@ -64,8 +64,7 @@ class Stage(object):
         self.grid._commander.func(
                 self.stage_name,
                 [a._var for a in inputs],
-                result_var=[a._var for a in outputs],
-                return_result=False)
+                result_var=[a._var for a in outputs])
         return outputs
 
 def decompose_function(func, mpi_inputs, verbose=True, num_procs=None):
@@ -76,6 +75,27 @@ def decompose_function(func, mpi_inputs, verbose=True, num_procs=None):
     compiled_stages = pool.map(compile_stage, pickled_stages)
     # compiled_stages = [compile_stage(s) for s in pickled_stages]
     return [Stage(s, f, grid) for s, f in zip(stages, compiled_stages)]
+
+class timestep(object):
+    def __init__(self, func, verbose=True, num_procs=None):
+        self.func = func
+        self.verbose = verbose
+        self.num_procs = num_procs
+
+    def __call__(self, mpi_inputs):
+        if not hasattr(self, 'stages'):
+            self.stages = decompose_function(
+                    self.func,
+                    mpi_inputs,
+                    self.verbose,
+                    self.num_procs)
+            self.is_return_list = isinstance(self.func(mpi_inputs), list)
+        for s in self.stages:
+            mpi_inputs = s(mpi_inputs)
+        if self.is_return_list:
+            return mpi_inputs
+        else:
+            return mpi_inputs[0]
 
 ################################################################################
 ################################################################################
