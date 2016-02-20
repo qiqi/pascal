@@ -340,7 +340,7 @@ def compile(input_values, output_values):
             hasattr(input_values, 'broadcastable'):
         input_values = [input_values]
     return theano.function(input_values, output_values,
-                           on_unused_input='ignore')
+                           on_unused_input='ignore', mode='FAST_COMPILE')
 
 def numpy_to_sa(a):
     assert isinstance(a, np.ndarray)

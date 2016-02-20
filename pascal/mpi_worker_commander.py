@@ -87,11 +87,22 @@ class MPI_Worker(object):
 
     # -------------------------------------------------------------------- #
 
+    def func_loop(self, arg_list):
+        result_list = []
+        for func, args, kwargs, result_var in arg_list:
+            result = self.func(func, args, kwargs, result_var)
+            if result:
+                result.list.append(result)
+        return result_list
+
     def func(self, func, args, kwargs, result_var):
         if isinstance(func, str):
             func = self.custom_funcs[func]
         elif isinstance(func, bytes):
             func = dill.loads(func)
+        elif isinstance(func, tuple):
+            variable, method_name = func
+            return self.method(variable, method_name, args, kwargs, result_var)
         args = self._substitute_args(args)
         kwargs = self._substitute_kwargs(kwargs)
         try:
@@ -292,6 +303,10 @@ class MPI_Commander(object):
         self._gather_from_workers()
 
     # -------------------------------------------------------------------- #
+
+    def func_loop(self, arg_list):
+        self._broadcast_to_workers(('func_loop', (arg_list,)))
+        return self._gather_from_workers()
 
     def func(self, func, args=(), kwargs={}, result_var=None):
         args = (func, args, kwargs, result_var)
