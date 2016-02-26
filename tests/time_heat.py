@@ -6,7 +6,11 @@ sys.path.append(os.path.join(my_path, '..'))
 
 from pascal.sa2d_classic import *
 
-nx, nproc = int(sys.argv[1]), int(sys.argv[2])
+try:
+    nx, nproc = int(sys.argv[1]), int(sys.argv[2])
+except:
+    print('correct arguments: nx, nproc')
+    sys.exit(0)
 
 t0 = time.time()
 G = grid2d(nx, nx, nproc)

@@ -201,7 +201,7 @@ class _SaveLoad(_OpTest):
 
 
 class _Euler(_OpTest):
-    def testTunnel(self):
+    def notestTunnel(self):
         # ------------------------------------------------------------ #
         #                        PROBLEM SET UP                        #
         # ------------------------------------------------------------ #

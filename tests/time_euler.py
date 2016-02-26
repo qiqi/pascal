@@ -6,6 +6,12 @@ sys.path.append(os.path.join(my_path, '..'))
 
 from pascal.sa2d_classic import *
 
+try:
+    nx, nproc = int(sys.argv[1]), int(sys.argv[2])
+except:
+    print('correct arguments: nx, nproc')
+    sys.exit(0)
+
 DISS_COEFF = 0.0025
 gamma, R = 1.4, 287.
 T0, p0, M0 = 300., 101325., 0.25
