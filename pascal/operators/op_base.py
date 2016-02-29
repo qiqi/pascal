@@ -32,7 +32,12 @@ class OpBase(object):
     def __init__(self, py_operation, inputs, access_neighbor=False,
                  dummy_func=np.ones, shape=None, name=None):
         self.py_operation = py_operation
-        self.inputs = copy.copy(tuple(inputs))
+        self.inputs = []
+        for inp in inputs:
+            if _is_like_sa_value(inp):
+                self.inputs.append(inp)
+            else:
+                self.inputs.append(np.array(inp, float))
         self.name = name
 
         produce_dummy = (lambda a:
@@ -103,7 +108,7 @@ class BinaryFunction(OpBase):
         ind_a, ind_b, ind_c = binary_op_indices(
                 self.inputs[0], self.inputs[1], self.output)
         lines = 'float {0}[{1}];\n'.format(c_name, self.output.size)
-        for ia, ib, ic in zip(ind_a, ind_b):
+        for ia, ib, ic in zip(ind_a, ind_b, ind_c):
             lines += '{0}[{1}] = {6}({2}[{3}], {4}[{5}]);\n'.format(
                     c_name, ic,
                     a_name, ia,

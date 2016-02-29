@@ -43,7 +43,7 @@ class pow(BinaryFunction):
         BinaryFunction.__init__(self,
                                 operator.pow,
                                 (a, b), name="pow",
-                                c_function_str="/")
+                                c_function_str="pow")
 
 class neg(UnitaryFunction):
     def __init__(self, a):

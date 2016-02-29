@@ -17,7 +17,7 @@ class x_m(OpBase):
                         name='x_m')
 
     def c_code(self, input_var_names, output_var_name):
-        return 'float * {0} = {1}_x_m;\n'.format(input_var_names[0],
+        return 'float * {1} = {0}_x_m;\n'.format(input_var_names[0],
                                                  output_var_name);
 
 class x_p(OpBase):
@@ -27,7 +27,7 @@ class x_p(OpBase):
                         name='x_p')
 
     def c_code(self, input_var_names, output_var_name):
-        return 'float * {0} = {1}_x_p;\n'.format(input_var_names[0],
+        return 'float * {1} = {0}_x_p;\n'.format(input_var_names[0],
                                                  output_var_name);
 
 class y_m(OpBase):
@@ -37,7 +37,7 @@ class y_m(OpBase):
                         name='y_m')
 
     def c_code(self, input_var_names, output_var_name):
-        return 'float * {0} = {1}_y_m;\n'.format(input_var_names[0],
+        return 'float * {1} = {0}_y_m;\n'.format(input_var_names[0],
                                                  output_var_name);
 
 class y_p(OpBase):
@@ -47,6 +47,6 @@ class y_p(OpBase):
                         name='y_p')
 
     def c_code(self, input_var_names, output_var_name):
-        return 'float * {0} = {1}_y_p;\n'.format(input_var_names[0],
+        return 'float * {1} = {0}_y_p;\n'.format(input_var_names[0],
                                                  output_var_name);
 

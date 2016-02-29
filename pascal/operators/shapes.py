@@ -13,13 +13,13 @@ class transpose(OpBase):
                         (a,), name='transpose')
 
     def c_code(self, input_var_names, output_var_name):
-        inp, out = self.inputs[1], self.output
+        inp, out = self.inputs[0], self.output
         ind_inp = np.arange(inp.size).reshape(inp.shape)
         ind_out = ind_inp.transpose(self.axes)
         lines = 'float {0}[{1}];\n'.format(output_var_name, out.size)
         for i_in, i_out in zip(np.ravel(ind_inp), np.ravel(ind_out)):
             lines += '{0}[{1}] = {2}[{3}];\n'.format(
-                    output_var_name, i_out, input_var_names[1], i_in)
+                    output_var_name, i_out, input_var_names[0], i_in)
         return lines
 
 
@@ -30,13 +30,13 @@ class reshape(OpBase):
                         (a,), name='reshape')
 
     def c_code(self, input_var_names, output_var_name):
-        inp, out = self.inputs[1], self.output
+        inp, out = self.inputs[0], self.output
         ind_inp = np.arange(inp.size).reshape(inp.shape)
         ind_out = ind_inp.reshape(self.shape)
         lines = 'float {0}[{1}];\n'.format(output_var_name, out.size)
         for i_in, i_out in zip(np.ravel(ind_inp), np.ravel(ind_out)):
             lines += '{0}[{1}] = {2}[{3}];\n'.format(
-                    output_var_name, i_out, input_var_names[1], i_in)
+                    output_var_name, i_out, input_var_names[0], i_in)
         return lines
 
 
@@ -48,12 +48,12 @@ class roll(OpBase):
         OpBase.__init__(self, op, (a,), name='roll')
 
     def c_code(self, input_var_names, output_var_name):
-        inp, out = self.inputs[1], self.output
+        inp, out = self.inputs[0], self.output
         ind_inp = np.arange(inp.size).reshape(inp.shape)
         ind_out = np.roll(ind_inp, self.shift, self.axis)
         lines = 'float {0}[{1}];\n'.format(output_var_name, out.size)
         for i_in, i_out in zip(np.ravel(ind_inp), np.ravel(ind_out)):
             lines += '{0}[{1}] = {2}[{3}];\n'.format(
-                    output_var_name, i_out, input_var_names[1], i_in)
+                    output_var_name, i_out, input_var_names[0], i_in)
         return lines
 
