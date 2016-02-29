@@ -1,3 +1,4 @@
+import pdb
 import os
 import sys
 import time
@@ -12,6 +13,7 @@ except:
     print('correct arguments: nx, nproc')
     sys.exit(0)
 
+pdb.set_trace()
 DISS_COEFF = 0.0025
 gamma, R = 1.4, 287.
 T0, p0, M0 = 300., 101325., 0.25
