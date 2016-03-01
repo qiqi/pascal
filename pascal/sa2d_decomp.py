@@ -334,14 +334,19 @@ def _solve_linear_program_glpk(linear_program, verbose):
             x.append(pulp.LpVariable('x'+str(i), l, u))
     # specify the objective
     assert len(x) == len(c)
-    lp += builtins.sum(c[i] * x[i] for i in range(len(x)))
+    # lp += builtins.sum(c[i] * x[i] for i in range(len(x)))
+    lp += pulp.LpAffineExpression([(x[i], c[i]) for i in range(len(x))])
     # add the constraints
     for i in range(b_le.size):
         j, = A_le[i].nonzero()
-        lp += builtins.sum(A_le[i, jj] * x[jj] for jj in j) <= b_le[i]
+        # lp += builtins.sum(A_le[i, jj] * x[jj] for jj in j) <= b_le[i]
+        expr = pulp.LpAffineExpression([(x[jj], A_le[i, jj]) for jj in j])
+        lp += pulp.LpConstraint(expr, pulp.LpConstraintLE, rhs=b_le[i])
     for i in range(b_eq.size):
         j, = A_eq[i].nonzero()
-        lp += builtins.sum(A_eq[i, jj] * x[jj] for jj in j) == b_eq[i]
+        # lp += builtins.sum(A_eq[i, jj] * x[jj] for jj in j) == b_eq[i]
+        expr = pulp.LpAffineExpression([(x[jj], A_eq[i, jj]) for jj in j])
+        lp += pulp.LpConstraint(expr, pulp.LpConstraintEQ, rhs=b_eq[i])
     # solve with GLPK
     s = pulp.GLPK(mip=0, msg=int(verbose > 1))
     s.actualSolve(lp)

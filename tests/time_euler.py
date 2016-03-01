@@ -13,7 +13,6 @@ except:
     print('correct arguments: nx, nproc')
     sys.exit(0)
 
-pdb.set_trace()
 DISS_COEFF = 0.0025
 gamma, R = 1.4, 287.
 T0, p0, M0 = 300., 101325., 0.25
@@ -27,7 +26,7 @@ Lx, Ly = 40., 10.
 dx = dy = 0.05
 dt = dx / c0 * 0.5
 
-Ni, Nj = 128, 64
+Ni, Nj = nx, nx/2
 def diffx(w):
     return (w.x_p - w.x_m) / (2 * dx)
 
@@ -90,7 +89,7 @@ def raw_step(w):
     return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
 t0 = time.time()
-G = grid2d(Ni, Nj, 4)
+G = grid2d(Ni, Nj, nproc)
 
 x = (G.i + 0.5) * dx - 0.2 * Lx
 y = (G.j + 0.5) * dy - 0.5 * Ly

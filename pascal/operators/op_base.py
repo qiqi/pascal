@@ -37,7 +37,11 @@ class OpBase(object):
             if _is_like_sa_value(inp):
                 self.inputs.append(inp)
             else:
-                self.inputs.append(np.array(inp, float))
+                try:
+                    inp = np.array(inp, float)
+                except IndexError:
+                    pass
+                self.inputs.append(inp)
         self.name = name
 
         produce_dummy = (lambda a:

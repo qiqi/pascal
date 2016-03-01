@@ -414,7 +414,7 @@ class _TestTheano(unittest.TestCase):
 # ============================================================================ #
 
 class _TestEuler(unittest.TestCase):
-    def notestTunnelRk4(self):
+    def testTunnelRk4(self):
 
         DISS_COEFF = 0.0025
         gamma, R = 1.4, 287.
@@ -507,7 +507,7 @@ class _TestEuler(unittest.TestCase):
         err = result - step(w0)
         self.assertAlmostEqual(G.reduce_sum(err**2).sum(), 0)
 
-    def notestTunnelRk4Theano(self):
+    def testTunnelRk4Theano(self):
 
         DISS_COEFF = 0.0025
         gamma, R = 1.4, 287.
