@@ -1,5 +1,6 @@
 #include<assert.h>
-#include<stdint.h>
+#include<inttypes.h>
+#include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
 #include<unistd.h>
@@ -7,90 +8,148 @@
 #include<mpi.h>
 #include<sys/stat.h>
 
-MPI_Comm command_comm;
-
 struct {
     uint64_t i0, i1, j0, j1;
     uint64_t x_m, x_p, y_m, y_p;
-} worker_const_position;
+    float * p_workspace;
+    MPI_Comm comm;
+} worker_global_const;
+
+typedef void (*hook_func_t)(
+            uint64_t n, float * im, float * ip, float * jm, float * jp);
+typedef void (*step_func_t)(
+            uint64_t i0, uint64_t i1, uint64_t j0, uint64_t j1,
+            float * p_workspace, hook_func_t p_send, hook_func_t p_recv);
 
 typedef struct {
     uint64_t max_vars, num_inputs, max_steps, step_func_bytes;
     float * p_workspace;
     void * p_shared_lib;
-    void (*step_func)(uint64_t i0, uint64_t i1, uint64_t j0, uint64_t j1);
+    step_func_t step_func;
 } job_t;
 
-void delete_job(job_t job)
-{
-    free(job.p_workspace);
-}
+void send(uint64_t n, float * im, float * ip, float * jm, float * jp)
+{}
+void recv(uint64_t n, float * im, float * ip, float * jm, float * jp)
+{}
 
 void receive_job_step_func(job_t job)
 {
-    char * step_func_bin = malloc(job.step_func_bytes);
-    MPI_Bcast(step_func_bin, job.step_func_bytes, MPI_CHAR, 0, command_comm);
-    // write into file
-    char path[2048];
-    getcwd(path, sizeof(path));
+    char * step_func_bin = (char*)malloc(job.step_func_bytes);
+    MPI_Bcast(step_func_bin, job.step_func_bytes, MPI_BYTE, 0,
+              worker_global_const.comm);
+    // write received binary into file
+    char path[1024];
+    if (getcwd(path, sizeof(path)) == NULL) {
+        fprintf(stderr, "Cannot get current path\n");
+        exit(-1);
+    }
     strcat(path, "/job.so");
     FILE * f = fopen(path, "wb");
-    f.write(step_func_bin);
-    fchmod(f, 0777);
+    fwrite(step_func_bin, 1, job.step_func_bytes, f);
     fclose(f);
-    // load file
+    // load file and obtain pointer to executable function
+    chmod(path, 0777);
     job.p_shared_lib = dlopen(path, RTLD_LAZY);
-    if (p_dl == NULL) {
+    if (job.p_shared_lib == NULL) {
         fprintf(stderr, "Failed to load so.so\n");
         exit(-1);
     }
-    job.step_func = dlsym(job.p_shared_lib, "step_func");
+    job.step_func = (step_func_t)dlsym(job.p_shared_lib, "step_func");
     free(step_func_bin);
 }
 
-void allocate_job_workspace(job_t job)
+void receive_job_inputs(job_t job)
 {
-    uint64_t i0 = worker_const_position.i0;
-    uint64_t i1 = worker_const_position.i1;
-    uint64_t j0 = worker_const_position.j0;
-    uint64_t j1 = worker_const_position.j1;
+    uint64_t i0 = worker_global_const.i0;
+    uint64_t i1 = worker_global_const.i1;
+    uint64_t j0 = worker_global_const.j0;
+    uint64_t j1 = worker_global_const.j1;
     uint64_t num_floats = job.max_vars * 2 * (i1 - i0 + 2) * (j1 - j0 + 2);
     job.p_workspace = (float*) malloc(sizeof(float) * num_floats);
+
+    uint64_t half_workspace = num_floats / 2;
+    float * p_recv = job.p_workspace + half_workspace;
+    const uint64_t input_size = job.num_inputs * (i1 - i0) * (j1 - j0);
+    MPI_Bcast(p_recv, input_size, MPI_FLOAT, 0, worker_global_const.comm);
+
+    for (uint64_t i = 0; i < i1 - i0; ++i) {
+        for (uint64_t j = 0; j < j1 - j0; ++j) {
+            uint64_t ind_src = i * (j1 - j0) + j;
+            uint64_t ind_des = (i + 1) * (j1 - j0 + 2) + (j + 1);
+            float * p_src = p_recv + ind_src * job.num_inputs;
+            float * p_des = job.p_workspace + ind_des * job.max_vars;
+            memcpy(p_des, p_src, sizeof(float) * job.num_inputs);
+        }
+    }
+}
+
+void send_job_outputs(job_t job)
+{
+    uint64_t i0 = worker_global_const.i0;
+    uint64_t i1 = worker_global_const.i1;
+    uint64_t j0 = worker_global_const.j0;
+    uint64_t j1 = worker_global_const.j1;
+    uint64_t half_workspace = job.max_vars * (i1 - i0 + 2) * (j1 - j0 + 2);
+    float * p_send = job.p_workspace + half_workspace;
+    for (uint64_t i = 0; i < i1 - i0; ++i) {
+        for (uint64_t j = 0; j < j1 - j0; ++j) {
+            uint64_t ind_des = i * (j1 - j0) + j;
+            uint64_t ind_src = (i + 1) * (j1 - j0 + 2) + (j + 1);
+            float * p_des = p_send + ind_des * job.num_inputs;
+            float * p_src = job.p_workspace + ind_src * job.max_vars;
+            memcpy(p_des, p_src, sizeof(float) * job.num_inputs);
+        }
+    }
+    const uint64_t output_size = job.num_inputs * (i1 - i0) * (j1 - j0);
+    MPI_Gather(p_send, output_size, MPI_FLOAT,
+               NULL, 0, MPI_FLOAT, 0, worker_global_const.comm);
+    free(job.p_workspace);
 }
 
 job_t recv_job()
 {
     job_t job;
-    MPI_Bcast(&job, 4, MPI_UINT64_T, 0, command_comm);
-    allocate_job_workspace(job);
-    uint64_t half_workspace = job.max_vars * (i1 - i0 + 2) * (j1 - j0 + 2);
-    float * p_recv = p_workspace + half_workspace;
-    const uint64_t input_size = NUM_INPUTS * (i1 - i0) * (j1 - j0);
-    MPI_Recv(p_recv, input_size, MPI_FLOAT, 0,
-             MPI_ANY_TAG, command_comm, MPI_STATUS_IGNORE);
-    for (uint64_t i = 0; i < i1 - i0; ++i) {
-        for (uint64_t j = 0; j < j1 - j0; ++j) {
-            uint64_t ind_src = i * (j1 - j0) + j;
-            uint64_t ind_des = (i + 1) * (j1 - j0 + 2) + (j + 1);
-            float * p_src = p_recv + ind_src * NUM_INPUTS;
-            float * p_des = p_workspace + ind_des * MAX_VARIABLES;
-            memcpy(p_des, p_src, sizeof(float) * NUM_INPUTS);
-        }
-    }
+    MPI_Bcast(&job, 4, MPI_UINT64_T, 0, worker_global_const.comm);
+    receive_job_step_func(job);
+    receive_job_inputs(job);
+    return job;
 }
 
-int main(int argc, char** argv)
+void complete_job(job_t job)
 {
+    uint64_t i0 = worker_global_const.i0;
+    uint64_t i1 = worker_global_const.i1;
+    uint64_t j0 = worker_global_const.j0;
+    uint64_t j1 = worker_global_const.j1;
+    job.step_func(i0, i1, j0, j1, job.p_workspace, &send, &recv);
+    send_job_outputs(job);
+    dlclose(job.p_shared_lib);
+}
+
+int main(int argc, char * argv[])
+{
+    fprintf(stderr, "Worker started\n");
     MPI_Init(&argc, &argv);
-    MPI_Comm_get_parent(&command_comm);
-    assert(command_comm != MPI_COMM_NULL);
-    MPI_Recv(&worker_const_position, 8, MPI_UINT64_T, 0,
-             MPI_ANY_TAG, command_comm, MPI_STATUS_IGNORE);
+    fprintf(stderr, "MPI Initialized\n");
+    MPI_Comm_get_parent(&worker_global_const.comm);
+    if (worker_global_const.comm == MPI_COMM_NULL) {
+        fprintf(stderr, "MPI failed to connect to parent\n");
+        exit(-1);
+    }
+    printf("stderr, Connected to parent\n");
+    MPI_Recv(&worker_global_const, 8, MPI_UINT64_T, 0,
+             MPI_ANY_TAG, worker_global_const.comm, MPI_STATUS_IGNORE);
+    printf("stderr, Obtained worker constants\n");
     // next job
-    uint64_t num_steps;
-    recv_next_job(&num_steps, p_workspace);
-    for (uint64_t istep = 0; istep < num_steps; ++istep) {
-        // 
+    for (uint64_t i_job = 0; ; ++i_job) {
+        job_t job = recv_job();
+        printf("Received job %" PRIu64 "\n", i_job);
+        if (job.num_inputs == 0) {
+            break;
+        }
+        complete_job(job);
+        printf("Completed job %" PRIu64 "\n", i_job);
     }
     MPI_Finalize();
     return 0;
