@@ -1,11 +1,17 @@
 CC = mpicxx
-COPT = -O3 -Wall -std=c99 -I/usr/include/x86_64-linux-gnu
+COPT = -O3 -Wall -I/usr/include/x86_64-linux-gnu
 LOPT = -O3 -Wall -ldl
 
-worker:	main.o
+worker:	main.o hooks.o
 	$(CC) $(LOPT) -o $@ $^
 
-main.o:	main.c
+main.o:	main.c hooks.h
+	$(CC) $(COPT) -c $<
+
+hooks.o:	hooks.c hooks.h
+	$(CC) $(COPT) -c $<
+
+step.o:	step.c hooks.h
 	$(CC) $(COPT) -c $<
 
 clean:

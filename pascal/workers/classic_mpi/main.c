@@ -8,30 +8,21 @@
 #include<mpi.h>
 #include<sys/stat.h>
 
-struct {
+#include "hooks.h"
+
+static struct {
     uint64_t i0, i1, j0, j1;
     uint64_t x_m, x_p, y_m, y_p;
     float * p_workspace;
     MPI_Comm comm;
 } worker_global_const;
 
-typedef void (*hook_func_t)(
-            uint64_t n, float * im, float * ip, float * jm, float * jp);
-typedef void (*step_func_t)(
-            uint64_t i0, uint64_t i1, uint64_t j0, uint64_t j1,
-            float * p_workspace, hook_func_t p_send, hook_func_t p_recv);
-
 typedef struct {
-    uint64_t max_vars, num_inputs, max_steps, step_func_bytes;
+    uint64_t max_vars, num_inputs, num_steps, step_func_bytes;
     float * p_workspace;
     void * p_shared_lib;
     step_func_t step_func;
 } job_t;
-
-void send(uint64_t n, float * im, float * ip, float * jm, float * jp)
-{}
-void recv(uint64_t n, float * im, float * ip, float * jm, float * jp)
-{}
 
 void receive_job_step_func(job_t job)
 {
@@ -122,7 +113,7 @@ void complete_job(job_t job)
     uint64_t i1 = worker_global_const.i1;
     uint64_t j0 = worker_global_const.j0;
     uint64_t j1 = worker_global_const.j1;
-    job.step_func(i0, i1, j0, j1, job.p_workspace, &send, &recv);
+    job.step_func(i0, i1, j0, j1, job.p_workspace, job.num_steps, &send, &recv);
     send_job_outputs(job);
     dlclose(job.p_shared_lib);
 }
