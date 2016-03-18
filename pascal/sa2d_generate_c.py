@@ -1,3 +1,4 @@
+
 import itertools
 
 import numpy as np
@@ -39,7 +40,7 @@ def generate_c_code_for_op(op, name_gen):
     output_name = next(name_gen)
     lines += op.c_code(input_names, output_name) + '\n'
     if v.has_neighbor:
-        for a in ['_x_m', '_x_p', '_y_m', '_y_p']:
+        for a in ['_i_m', '_i_p', '_j_m', '_j_p']:
             input_nbr_names = []
             for inp, name in zip(op.inputs, input_names):
                 if _is_like_sa_value(inp):

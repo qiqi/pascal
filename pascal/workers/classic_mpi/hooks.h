@@ -1,6 +1,8 @@
 #ifndef CLASSIC_MPI_WORKER_HOOKS_H
 #define CLASSIC_MPI_WORKER_HOOKS_H
 
+#include<inttypes.h>
+
 typedef void (*hook_func_t)(
             uint64_t n, float * im, float * ip, float * jm, float * jp);
 typedef void (*step_func_t)(

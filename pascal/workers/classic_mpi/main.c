@@ -12,7 +12,7 @@
 
 static struct {
     uint64_t i0, i1, j0, j1;
-    uint64_t x_m, x_p, y_m, y_p;
+    uint64_t i_m, i_p, j_m, j_p;
     float * p_workspace;
     MPI_Comm comm;
 } worker_global_const;
@@ -102,8 +102,10 @@ job_t recv_job()
 {
     job_t job;
     MPI_Bcast(&job, 4, MPI_UINT64_T, 0, worker_global_const.comm);
-    receive_job_step_func(job);
-    receive_job_inputs(job);
+    if (job.num_inputs > 0) {
+        receive_job_step_func(job);
+        receive_job_inputs(job);
+    }
     return job;
 }
 
@@ -128,10 +130,19 @@ int main(int argc, char * argv[])
         fprintf(stderr, "MPI failed to connect to parent\n");
         exit(-1);
     }
-    printf("stderr, Connected to parent\n");
+    fprintf(stderr, "Connected to parent\n");
     MPI_Recv(&worker_global_const, 8, MPI_UINT64_T, 0,
              MPI_ANY_TAG, worker_global_const.comm, MPI_STATUS_IGNORE);
-    printf("stderr, Obtained worker constants\n");
+    fprintf(stderr, "Obtained worker constants: ");
+    fprintf(stderr, "%" PRId64 " ", worker_global_const.i0);
+    fprintf(stderr, "%" PRId64 " ", worker_global_const.i1);
+    fprintf(stderr, "%" PRId64 " ", worker_global_const.j0);
+    fprintf(stderr, "%" PRId64 " ", worker_global_const.j1);
+    fprintf(stderr, "%" PRId64 " ", worker_global_const.i_m);
+    fprintf(stderr, "%" PRId64 " ", worker_global_const.i_p);
+    fprintf(stderr, "%" PRId64 " ", worker_global_const.j_m);
+    fprintf(stderr, "%" PRId64 " ", worker_global_const.j_p);
+    fprintf(stderr, "\n");
     // next job
     for (uint64_t i_job = 0; ; ++i_job) {
         job_t job = recv_job();
@@ -145,3 +156,9 @@ int main(int argc, char * argv[])
     MPI_Finalize();
     return 0;
 }
+
+
+void send(uint64_t n, float * im, float * ip, float * jm, float * jp)
+{}
+void recv(uint64_t n, float * im, float * ip, float * jm, float * jp)
+{}

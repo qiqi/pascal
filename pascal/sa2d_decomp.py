@@ -70,11 +70,11 @@ class stencil_array(object):
     # --------------------------- operations ------------------------------ #
 
     # asks ndarray to use the __rops__ defined in this class
-    __array_priority__ = 3000
+    __arraj_priority__ = 3000
 
     def __add__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
+        if hasattr(a, '__arraj_priority__') and \
+                a.__arraj_priority__ > self.__arraj_priority__:
             return a.__add__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.add(self.value, a).output)
@@ -83,8 +83,8 @@ class stencil_array(object):
         return self.__add__(a)
 
     def __sub__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
+        if hasattr(a, '__arraj_priority__') and \
+                a.__arraj_priority__ > self.__arraj_priority__:
             return a.__rsub__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.sub(self.value, a).output)
@@ -94,8 +94,8 @@ class stencil_array(object):
         return stencil_array(operators.sub(a, self.value).output)
 
     def __mul__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
+        if hasattr(a, '__arraj_priority__') and \
+                a.__arraj_priority__ > self.__arraj_priority__:
             return a.__rmul__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.mul(self.value, a).output)
@@ -104,8 +104,8 @@ class stencil_array(object):
         return self.__mul__(a)
 
     def __truediv__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
+        if hasattr(a, '__arraj_priority__') and \
+                a.__arraj_priority__ > self.__arraj_priority__:
             return a.__rtruediv__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.truediv(self.value, a).output)
@@ -115,8 +115,8 @@ class stencil_array(object):
         return stencil_array(operators.truediv(a, self.value).output)
 
     def __pow__(self, a):
-        if hasattr(a, '__array_priority__') and \
-                a.__array_priority__ > self.__array_priority__:
+        if hasattr(a, '__arraj_priority__') and \
+                a.__arraj_priority__ > self.__arraj_priority__:
             return a.__rpow__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.pow(self.value, a).output)
@@ -156,26 +156,26 @@ class stencil_array(object):
     class dummy_func(object):
         def __init__(self, shape):
             self.shape = shape
-            self.x_p = self
-            self.x_m = self
-            self.y_p = self
-            self.y_m = self
+            self.i_p = self
+            self.i_m = self
+            self.j_p = self
+            self.j_m = self
 
     @property
-    def x_p(self):
-        return stencil_array(operators.x_p(self.value).output)
+    def i_p(self):
+        return stencil_array(operators.i_p(self.value).output)
 
     @property
-    def x_m(self):
-        return stencil_array(operators.x_m(self.value).output)
+    def i_m(self):
+        return stencil_array(operators.i_m(self.value).output)
 
     @property
-    def y_p(self):
-        return stencil_array(operators.y_p(self.value).output)
+    def j_p(self):
+        return stencil_array(operators.j_p(self.value).output)
 
     @property
-    def y_m(self):
-        return stencil_array(operators.y_m(self.value).output)
+    def j_m(self):
+        return stencil_array(operators.j_m(self.value).output)
 
     # ---------------------------- indexing ------------------------------- #
 
