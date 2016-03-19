@@ -35,13 +35,17 @@ void recv_job_step_func(job_t job)
         fprintf(stderr, "Cannot get current path\n");
         exit(-1);
     }
-    strcat(path, "/job.so");
-    FILE * f = fopen(path, "wb");
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    char tmp_job_so[1024];
+    sprintf(tmp_job_so, "%s/job.%d.so", path, rank);
+    fprintf(stderr, "%s\n", tmp_job_so);
+    FILE * f = fopen(tmp_job_so, "wb");
     fwrite(step_func_bin, 1, job.step_func_bytes, f);
     fclose(f);
     // load file and obtain pointer to executable function
-    chmod(path, 0777);
-    job.p_shared_lib = dlopen(path, RTLD_LAZY);
+    chmod(tmp_job_so, 0777);
+    job.p_shared_lib = dlopen(tmp_job_so, RTLD_LAZY);
     if (job.p_shared_lib == NULL) {
         fprintf(stderr, "Failed to load so.so\n");
         exit(-1);
@@ -102,9 +106,14 @@ job_t recv_job()
 {
     job_t job;
     MPI_Bcast(&job, 4, MPI_UINT64_T, 0, worker_global_const.comm);
-    fprintf(stderr, "Received job\n");
+    fprintf(stderr, "Received job %d %d %d %d\n",
+            (int)job.max_vars,
+            (int)job.num_inputs,
+            (int)job.num_steps,
+            (int)job.step_func_bytes);
     if (job.num_inputs > 0) {
         recv_job_step_func(job);
+        fprintf(stderr, "Received job binary\n");
         recv_job_inputs(job);
     }
     return job;

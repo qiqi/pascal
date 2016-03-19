@@ -79,6 +79,7 @@ class MPI_Commander(object):
             max_vars, num_inputs, num_steps, len(binary)
         ], np.uint64)
         self.comm.Bcast(job, MPI.ROOT)
+        self.comm.Bcast(np.frombuffer(binary, np.uint8), MPI.ROOT)
 
     # -------------------------------------------------------------------- #
 
