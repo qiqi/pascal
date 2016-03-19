@@ -5,9 +5,16 @@
 ################################################################################
 
 import os
+import sys
 
 import numpy as np
 from mpi4py import MPI
+
+my_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(my_path, '../..'))
+
+import pascal.workers
+from pascal.sa2d_generate_c import decompose_function, stencil_array
 
 class MPI_Commander(object):
     '''
@@ -30,10 +37,9 @@ class MPI_Commander(object):
     >>> comm.delete_variable(i_plus_j)
     '''
     def __init__(self, worker, ni, nj, niProc, njProc):
+        self.worker = getattr(pascal.workers, worker)
         file_path = os.path.split(os.path.abspath(__file__))[0]
         cmd = os.path.join(file_path, worker, 'main')
-        print(cmd)
-        assert os.path.exists(cmd)
         self.comm = MPI.COMM_WORLD.Spawn(cmd, (), niProc * njProc)
 
         assert self.comm.size == 1, "MPI_Commander is designed to " \
@@ -66,10 +72,13 @@ class MPI_Commander(object):
     # -------------------------------------------------------------------- #
 
     def send_job(self, stages, num_steps, inputs):
-        pass
-
-    def send_trivial_job(self, stages, num_steps, inputs):
-        pass
+        max_vars = max(s.downstream_values[0].size for s in stages)
+        num_inputs = stages[0].upstream_values[0].size
+        binary = self.worker.build(stages)
+        job = np.array([
+            max_vars, num_inputs, num_steps, len(binary)
+        ], np.uint64)
+        self.comm.Bcast(job, MPI.ROOT)
 
     # -------------------------------------------------------------------- #
 
@@ -86,6 +95,12 @@ class MPI_Commander(object):
 
 def test_classic_mpi():
     comm = MPI_Commander('classic_mpi', 10, 10, 2, 2)
+    def heat(w):
+        return w.i_p + w.i_m - 2 * w
+    def step(w):
+        return w + heat(w + 0.5 * heat(w))
+    stages = decompose_function(step, stencil_array())
+    comm.send_job(stages, 1000, 0)
     comm.dismiss()
 
 if __name__ == '__main__':

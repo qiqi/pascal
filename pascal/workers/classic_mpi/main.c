@@ -24,7 +24,7 @@ typedef struct {
     step_func_t step_func;
 } job_t;
 
-void receive_job_step_func(job_t job)
+void recv_job_step_func(job_t job)
 {
     char * step_func_bin = (char*)malloc(job.step_func_bytes);
     MPI_Bcast(step_func_bin, job.step_func_bytes, MPI_BYTE, 0,
@@ -50,7 +50,7 @@ void receive_job_step_func(job_t job)
     free(step_func_bin);
 }
 
-void receive_job_inputs(job_t job)
+void recv_job_inputs(job_t job)
 {
     uint64_t i0 = worker_global_const.i0;
     uint64_t i1 = worker_global_const.i1;
@@ -102,9 +102,10 @@ job_t recv_job()
 {
     job_t job;
     MPI_Bcast(&job, 4, MPI_UINT64_T, 0, worker_global_const.comm);
+    fprintf(stderr, "Received job\n");
     if (job.num_inputs > 0) {
-        receive_job_step_func(job);
-        receive_job_inputs(job);
+        recv_job_step_func(job);
+        recv_job_inputs(job);
     }
     return job;
 }
@@ -133,16 +134,7 @@ int main(int argc, char * argv[])
     fprintf(stderr, "Connected to parent\n");
     MPI_Recv(&worker_global_const, 8, MPI_UINT64_T, 0,
              MPI_ANY_TAG, worker_global_const.comm, MPI_STATUS_IGNORE);
-    fprintf(stderr, "Obtained worker constants: ");
-    fprintf(stderr, "%" PRId64 " ", worker_global_const.i0);
-    fprintf(stderr, "%" PRId64 " ", worker_global_const.i1);
-    fprintf(stderr, "%" PRId64 " ", worker_global_const.j0);
-    fprintf(stderr, "%" PRId64 " ", worker_global_const.j1);
-    fprintf(stderr, "%" PRId64 " ", worker_global_const.i_m);
-    fprintf(stderr, "%" PRId64 " ", worker_global_const.i_p);
-    fprintf(stderr, "%" PRId64 " ", worker_global_const.j_m);
-    fprintf(stderr, "%" PRId64 " ", worker_global_const.j_p);
-    fprintf(stderr, "\n");
+    fprintf(stderr, "Obtained worker constants\n");
     // next job
     for (uint64_t i_job = 0; ; ++i_job) {
         job_t job = recv_job();

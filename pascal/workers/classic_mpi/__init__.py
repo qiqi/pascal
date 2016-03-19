@@ -63,9 +63,6 @@ def test_build():
     def heat(w):
         return w.i_p + w.i_m - 2 * w
     def step(w):
-        return w + heat(w)
-    # not working yet because of redefinition and triburary
-    def step(w):
         return w + heat(w + 0.5 * heat(w))
     stages = decompose_function(step, stencil_array())
     binary = build(stages)
