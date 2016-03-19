@@ -12,19 +12,19 @@ def name_generator():
 
 def define_constant(v, name):
     v = np.ravel(np.array(v, float));
-    lines = 'float {0}[{1}];\n'.format(name, v.size);
+    c_code = 'float {0}[{1}];\n'.format(name, v.size);
     for i in range(v.size):
-        lines += '{0}[{1}] = {2};\n'.format(name, i, v[i])
-    return lines
+        c_code += '{0}[{1}] = {2};\n'.format(name, i, v[i])
+    return c_code
 
 def copy_to_output(name, size):
-    lines = ''
+    c_code = ''
     for i in range(size):
-        lines += 'downstream[{0}] = {1}[{0}];\n'.format(i, name)
-    return lines
+        c_code += 'downstream[{0}] = {1}[{0}];\n'.format(i, name)
+    return c_code
 
 def generate_c_code_for_op(op, name_gen):
-    lines = ''
+    c_code = ''
     v = op.output
     assert not hasattr(v, '_name')
     input_names = []
@@ -35,10 +35,10 @@ def generate_c_code_for_op(op, name_gen):
             v.has_neighbor = v.has_neighbor and inp.has_neighbor
         else:
             const_name = next(name_gen)
-            lines += define_constant(inp, const_name) + '\n'
+            c_code += define_constant(inp, const_name) + '\n'
             input_names.append(const_name)
     output_name = next(name_gen)
-    lines += op.c_code(input_names, output_name) + '\n'
+    c_code += op.c_code(input_names, output_name) + '\n'
     if v.has_neighbor:
         for a in ['_i_m', '_i_p', '_j_m', '_j_p']:
             input_nbr_names = []
@@ -47,9 +47,18 @@ def generate_c_code_for_op(op, name_gen):
                     input_nbr_names.append(name + a)
                 else:
                     input_nbr_names.append(name)
-            lines += op.c_code(input_nbr_names, output_name + a) + '\n'
+            c_code += op.c_code(input_nbr_names, output_name + a) + '\n'
     v._name = output_name
-    return lines
+    return c_code
+
+def initialize_default_values(values):
+    c_code = ''
+    for v in values:
+        if v is G_ZERO:
+            for suffix in ['', '_i_p', '_i_m', '_j_p', '_j_m']:
+                c_code += 'const float {0}{1}[1] = {{0.0f}};\n'.format(
+                                       v._name, suffix)
+    return c_code + '\n'
 
 def generate_c_code(stage):
     assert len(stage.upstream_values) == 1
@@ -61,27 +70,27 @@ def generate_c_code(stage):
         assert not hasattr(v, '_name')
         v._name = name
         v.has_neighbor = True
-    lines = ''
+    c_code = initialize_default_values(init_values)
     name_gen = name_generator()
     for v in stage.sorted_values:
-        lines += generate_c_code_for_op(v.owner, name_gen)
-    lines += copy_to_output(v._name, v.size)
+        c_code += generate_c_code_for_op(v.owner, name_gen)
+    c_code += copy_to_output(v._name, v.size)
     for v in init_values + stage.sorted_values:
         del v._name
-    return lines
+    return c_code
 
 def generate_test_c_code(stage, stage_name, ni, nj):
-    lines =  '#include<math.h>\n'
-    lines += '#include<stdio.h>\n\n'
+    c_code =  '#include<math.h>\n'
+    c_code += '#include<stdio.h>\n\n'
     v_up, v_down = stage.upstream_values[0], stage.downstream_values[0]
     args = ['float down[{0}][{1}][{2}]'.format(ni, nj, v_down.size),
             'float up[{0}][{1}][{2}]'.format(ni, nj, v_up.size)]
     for i, v in enumerate(stage.triburary_values):
         args.append(
             'float trib_{0}[{1}][{2}][{3}]'.format(i, ni, nj, v.size))
-    lines += 'void {0}({1})\n{{\n'.format(stage_name, ', '.join(args))
-    lines += '    for (int i = 0; i < {0}; ++i) {{\n'.format(ni)
-    lines += '        for (int j = 0; j < {0}; ++j) {{\n'.format(nj)
+    c_code += 'void {0}({1})\n{{\n'.format(stage_name, ', '.join(args))
+    c_code += '    for (int i = 0; i < {0}; ++i) {{\n'.format(ni)
+    c_code += '        for (int j = 0; j < {0}; ++j) {{\n'.format(nj)
     inner =  'float * downstream = down[i][j];\n'
     inner += 'float * downstream_x_p = down[(i+1)%{0}][j];\n'.format(ni)
     inner += 'float * downstream_x_m = down[(i+{0}-1)%{0}][j];\n'.format(ni)
@@ -100,8 +109,8 @@ def generate_test_c_code(stage, stage_name, ni, nj):
         inner += pref + '{0}_y_p = trib_{0}[i][(j+1)%{1}];\n'.format(i, nj)
         inner += pref + '{0}_y_m = trib_{0}[i][(j+{1}-1)%{1}];\n'.format(i, nj)
     inner += generate_c_code(stage)
-    lines += '\n'.join(' ' * 12 + line for line in inner.splitlines()) + '\n'
-    lines += '        }\n'
-    lines += '    }\n'
-    lines += '}\n'
-    return lines
+    c_code += '\n'.join(' ' * 12 + line for line in inner.splitc_code()) + '\n'
+    c_code += '        }\n'
+    c_code += '    }\n'
+    c_code += '}\n'
+    return c_code

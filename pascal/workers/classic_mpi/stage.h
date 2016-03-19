@@ -1,17 +1,16 @@
-#define STAGE_NAME name
-#define NUM_INPUTS 10
-#define NUM_OUTPUTS 10
-#define MAX_VARS 10
-
 #include<inttypes.h>
 #include<string.h>
 
 #include "hooks.h"
 
-void inline STAGE_NAME(uint64_t i0, uint64_t i1, uint64_t j0, uint64_t j1,
+void inline ${STAGE_NAME}(uint64_t i0, uint64_t i1, uint64_t j0, uint64_t j1,
                        float * p_workspace,
                        hook_func_t p_send, hook_func_t p_recv)
 {
+    const uint64_t NUM_INPUTS = ${NUM_INPUTS};
+    const uint64_t NUM_OUTPUTS = ${NUM_OUTPUTS};
+    const uint64_t MAX_VARS = ${MAX_VARS};
+
     float * p_input = p_workspace;
     float * p_output = p_workspace + MAX_VARS * (i1-i0+2) * (j1-j0+2);
 
@@ -33,7 +32,7 @@ void inline STAGE_NAME(uint64_t i0, uint64_t i1, uint64_t j0, uint64_t j1,
             float * downstream =
                 p_output + NUM_OUTPUTS * (j-j0+1 + (j1-j0+2) * (i-i0+1));
 
-            /*MAIN_CODE*/
+            ${MAIN_CODE}
         }
     }
 
