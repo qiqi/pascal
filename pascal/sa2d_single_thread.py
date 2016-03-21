@@ -221,22 +221,22 @@ class psarray_base(object):
     # -------------------------------------------------------------------- #
 
     @property
-    def x_p(self):
+    def i_p(self):
         data = self.grid._math.roll(self._data, -1, axis=0)
         return self.grid._array(data, self.shape)
 
     @property
-    def x_m(self):
+    def i_m(self):
         data = self.grid._math.roll(self._data, +1, axis=0)
         return self.grid._array(data, self.shape)
 
     @property
-    def y_p(self):
+    def j_p(self):
         data = self.grid._math.roll(self._data, -1, axis=1)
         return self.grid._array(data, self.shape)
 
     @property
-    def y_m(self):
+    def j_m(self):
         data = self.grid._math.roll(self._data, +1, axis=1)
         return self.grid._array(data, self.shape)
 
@@ -245,7 +245,7 @@ class psarray_base(object):
     # -------------------------------------------------------------------- #
 
     # asks ndarray to use the __rops__ defined in this class
-    __array_priority__ = 2000
+    __arraj_priority__ = 2000
 
     def __neg__(self):
         return self.grid._array(-self._data, self.shape)
@@ -254,8 +254,8 @@ class psarray_base(object):
         return self.__add__(a)
 
     def __add__(self, a):
-        if hasattr(a, '__array_priority__'):
-            if a.__array_priority__ > self.__array_priority__:
+        if hasattr(a, '__arraj_priority__'):
+            if a.__arraj_priority__ > self.__arraj_priority__:
                 return a.__add__(self)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid
@@ -285,8 +285,8 @@ class psarray_base(object):
         return self.__mul__(a)
 
     def __mul__(self, a):
-        if hasattr(a, '__array_priority__'):
-            if a.__array_priority__ > self.__array_priority__:
+        if hasattr(a, '__arraj_priority__'):
+            if a.__arraj_priority__ > self.__arraj_priority__:
                 return a.__rmul__(self)
 
         if isinstance(a, psarray_base):
@@ -308,8 +308,8 @@ class psarray_base(object):
             return self.grid._array(data * a, shape)
 
     def __truediv__(self, a):
-        if hasattr(a, '__array_priority__'):
-            if a.__array_priority__ > self.__array_priority__:
+        if hasattr(a, '__arraj_priority__'):
+            if a.__arraj_priority__ > self.__arraj_priority__:
                 return a.__rtruediv__(self)
 
         if isinstance(a, psarray_base):
@@ -339,8 +339,8 @@ class psarray_base(object):
         return self.grid._array(a / data, shape)
 
     def __pow__(self, a):
-        if hasattr(a, '__array_priority__'):
-            if a.__array_priority__ > self.__array_priority__:
+        if hasattr(a, '__arraj_priority__'):
+            if a.__arraj_priority__ > self.__arraj_priority__:
                 return a.__rpow__(self)
 
         if isinstance(a, psarray_base):
@@ -416,8 +416,8 @@ class psarray_numpy(psarray_base):
     # -------------------------------------------------------------------- #
 
     def __setitem__(self, ind, a):
-        if hasattr(a, '__array_priority__'):
-            assert a.__array_priority__ <= self.__array_priority__
+        if hasattr(a, '__arraj_priority__'):
+            assert a.__arraj_priority__ <= self.__arraj_priority__
         ind = self._data_index_(ind)
         if isinstance(a, psarray_numpy):
             assert a.grid is self.grid
@@ -447,8 +447,8 @@ class psarray_theano(psarray_base):
     # -------------------------------------------------------------------- #
 
     def __setitem__(self, ind, a):
-        if hasattr(a, '__array_priority__'):
-            assert a.__array_priority__ <= self.__array_priority__
+        if hasattr(a, '__arraj_priority__'):
+            assert a.__arraj_priority__ <= self.__arraj_priority__
         ind = self._data_index_(ind)
         if isinstance(a, psarray_base):
             assert a.grid is self.grid

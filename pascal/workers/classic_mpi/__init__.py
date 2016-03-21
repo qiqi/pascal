@@ -22,7 +22,7 @@ def substitute_step_c(template, stage_names, max_vars):
     include, stages = '', ''
     for name in stage_names:
         include += '#include "{0}.h"\n'.format(name)
-        stages += '    {0}(i0, i1, j0, j1, p_w, p_s, p_r);\n'.format(name)
+        stages += '    {0}(i0, i1, j0, j1, p_w, p_s, p_e);\n'.format(name)
     return string.Template(template).substitute(
             INCLUDE=include,
             STAGES=stages)
@@ -37,8 +37,6 @@ def subs_and_write(stages, template_path, tmp_path):
     for name, stage in zip(stage_names, stages):
         with open(os.path.join(tmp_path, name + '.h'), 'wt') as f:
             f.write(substitute_stage_h(stage_h, name, stage, max_vars))
-    with open(os.path.join(tmp_path, 'hooks.h'), 'wt') as f:
-        f.write(open(os.path.join(template_path, 'hooks.h')).read())
 
 def compile_and_load(tmp_path, compiler='gcc'):
     compiler = subprocess.check_output(['which', compiler]).decode().strip()
@@ -46,7 +44,7 @@ def compile_and_load(tmp_path, compiler='gcc'):
     obj = os.path.join(tmp_path, 'step.o')
     so = os.path.join(tmp_path, 'step.so')
     subprocess.check_call([
-        compiler, '-O3', '-g', '--std=c99', '--PIC', '-c', src, '-o', obj
+        compiler, '-O3', '--std=c99', '--PIC', '-c', src, '-o', obj
     ])
     subprocess.check_call([compiler, '-O3', '--shared', obj, '-o', so])
     return open(so, 'rb').read()

@@ -6,6 +6,7 @@
 
 import os
 import sys
+import time
 
 import numpy as np
 from mpi4py import MPI
@@ -15,6 +16,8 @@ sys.path.append(os.path.join(my_path, '../..'))
 
 import pascal.workers
 from pascal.sa2d_generate_c import decompose_function, stencil_array
+
+import pascal.sa2d_single_thread
 
 class MPI_Commander(object):
     '''
@@ -38,17 +41,22 @@ class MPI_Commander(object):
     '''
     def __init__(self, worker, ni, nj, niProc, njProc):
         self.worker = getattr(pascal.workers, worker)
+        self.ni = int(ni)
+        self.nj = int(nj)
         file_path = os.path.split(os.path.abspath(__file__))[0]
         cmd = os.path.join(file_path, worker, 'main')
         self.comm = MPI.COMM_WORLD.Spawn(cmd, (), niProc * njProc)
 
         assert self.comm.size == 1, "MPI_Commander is designed to " \
                                     "launch from a single processor"
-        self.iRanges = self._i_ranges(ni, niProc)
-        self.jRanges = self._i_ranges(nj, njProc)
+        i_ranges = self._i_ranges(ni, niProc)
+        j_ranges = self._i_ranges(nj, njProc)
 
-        for i, iRange in enumerate(self.iRanges):
-            for j, jRange in enumerate(self.jRanges):
+        self.i_slices = []
+        self.j_slices = []
+
+        for i, i_range in enumerate(i_ranges):
+            for j, j_range in enumerate(j_ranges):
                 rank = i * njProc + j
                 rank_i_m = (i + niProc - 1) % niProc * njProc + j
                 rank_i_p = (i + 1) % niProc * njProc + j
@@ -56,8 +64,11 @@ class MPI_Commander(object):
                 rank_j_p = i * njProc + (j + 1) % njProc
                 neighbor_ranks = (rank_i_m, rank_i_p, rank_j_m, rank_j_p)
 
+                self.i_slices.append(slice(i_range[0], i_range[1]))
+                self.j_slices.append(slice(j_range[0], j_range[1]))
+
                 worker_global_const = np.array([
-                    iRange[0], iRange[1], jRange[0], jRange[1],
+                    i_range[0], i_range[1], j_range[0], j_range[1],
                     rank_i_m, rank_i_p, rank_j_m, rank_j_p
                 ], np.uint64)
                 self.comm.Send(worker_global_const, rank)
@@ -66,12 +77,22 @@ class MPI_Commander(object):
 
     @staticmethod
     def _i_ranges(ni, niProc):
-        iRanges = np.array(np.around(ni / niProc * np.arange(niProc + 1)), int)
-        return tuple((iRanges[i], iRanges[i+1]) for i in range(niProc))
+        i_ranges = np.array(np.around(ni / niProc * np.arange(niProc + 1)), int)
+        return tuple((i_ranges[i], i_ranges[i+1]) for i in range(niProc))
 
     # -------------------------------------------------------------------- #
 
-    def send_job(self, stages, num_steps, inputs):
+    def _send_inputs(self, inputs):
+        tiled_inputs = []
+        for i, j in zip(self.i_slices, self.j_slices):
+            tiled_inputs.append(inputs[i, j])
+        self.comm.Scatter(np.ravel(tiled_inputs), None, MPI.ROOT)
+
+    def _recv_outputs(self, shape):
+        outputs = np.empty(shape, np.float32)
+        self.comm.Gather(None, outputs, MPI.ROOT)
+
+    def process_job(self, stages, num_steps, inputs):
         max_vars = max(s.downstream_values[0].size for s in stages)
         num_inputs = stages[0].upstream_values[0].size
         binary = self.worker.build(stages)
@@ -80,11 +101,17 @@ class MPI_Commander(object):
         ], np.uint64)
         self.comm.Bcast(job, MPI.ROOT)
         self.comm.Bcast(np.frombuffer(binary, np.uint8), MPI.ROOT)
+        inputs = np.array(inputs, np.float32)
+        assert inputs.shape[:2] == (self.ni, self.nj)
+        assert inputs.size == self.ni * self.nj * num_inputs
+        self._send_inputs(inputs)
+        self._recv_outputs(inputs.shape)
 
     # -------------------------------------------------------------------- #
 
     def dismiss(self):
         if self.comm is not None:
+            self.comm.Bcast(np.zeros(4, np.uint64), MPI.ROOT)
             self.comm.Barrier()
             self.comm = None
 
@@ -95,13 +122,22 @@ class MPI_Commander(object):
 
 
 def test_classic_mpi():
-    comm = MPI_Commander('classic_mpi', 10, 10, 2, 2)
+    n = 1000
+    comm = MPI_Commander('classic_mpi', n, n, 2, 2)
     def heat(w):
         return w.i_p + w.i_m - 2 * w
     def step(w):
         return w + heat(w + 0.5 * heat(w))
+    # G = pascal.sa2d_single_thread.grid2d(n, n)
+    # w = G.zeros()
+    # t0 = time.time()
+    # for i in range(1000):
+    #     w = step(w)
+    # print('Single thread: ', time.time() - t0)
+    t0 = time.time()
     stages = decompose_function(step, stencil_array())
-    comm.send_job(stages, 1000, 0)
+    comm.process_job(stages, 2000, np.zeros([n,n]))
+    print('Time =', time.time() - t0)
     comm.dismiss()
 
 if __name__ == '__main__':
