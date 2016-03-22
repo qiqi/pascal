@@ -42,3 +42,9 @@ class stencil_array_value(object):
     def __len__(self):
         return 1 if not self.shape else self.shape[0]
 
+
+class builtin:
+    ZERO = stencil_array_value()
+    I = stencil_array_value()
+    J = stencil_array_value()
+

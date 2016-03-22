@@ -7,6 +7,12 @@ sys.path.append(os.path.join(my_path, '../../..'))
 
 from pascal.sa2d_generate_c import *
 
+if not os.path.exists(os.path.join(my_path, 'main')):
+    cwd = os.getcwd()
+    os.chdir(my_path)
+    subprocess.check_call('make', stdout=subprocess.PIPE)
+    os.chdir(cwd)
+
 def substitute_stage_h(template, name, stage, max_vars):
     assert len(stage.upstream_values) == 1
     assert len(stage.downstream_values) == 1

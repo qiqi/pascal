@@ -134,8 +134,8 @@ class UnitaryFunction(OpBase):
         lines = 'float {0}[{1}];\n'.format(b_name, self.output.size)
         for i in np.arange(self.output.size):
             lines += '{0}[{1}] = {4}({2}[{3}]);\n'.format(
-                    b_name, ib,
-                    a_name, ia,
+                    b_name, i,
+                    a_name, i,
                     self.c_function_str)
         return lines
 

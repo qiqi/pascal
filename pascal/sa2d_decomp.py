@@ -22,6 +22,7 @@ import graphviz
 from . import operators
 from .operators import infer_context
 from .sa2d_decomp_value import _is_like_sa_value, stencil_array_value
+from .sa2d_decomp_value import builtin as builtin_values
 
 GLOBAL_MAX_STAGES = -128
 
@@ -103,6 +104,12 @@ class stencil_array(object):
 
     def __rmul__(self, a):
         return self.__mul__(a)
+
+    def __div__(self, a):
+        return self.__truediv__(a)
+
+    def __rdiv__(self, a):
+        return self.__rtruediv__(a)
 
     def __truediv__(self, a):
         if hasattr(a, '__array_priority__') and \
@@ -237,17 +244,19 @@ def mean(a, axis=None):
     return sum(a) / n
 
 # ============================================================================ #
-#                             built-in source array                            #
+#                             array generators                                 #
 # ============================================================================ #
 
 class builtin:
-    ZERO = stencil_array_value()
+    ZERO = stencil_array(builtin_values.ZERO)
+    I = stencil_array(builtin_values.I)
+    J = stencil_array(builtin_values.J)
 
 def ones(shape=()):
-    return stencil_array(builtin.ZERO) + np.ones(shape)
+    return builtin.ZERO + np.ones(shape)
 
 def zeros(shape=()):
-    return stencil_array(builtin.ZERO) + np.zeros(shape)
+    return builtin.ZERO + np.zeros(shape)
 
 
 # ============================================================================ #

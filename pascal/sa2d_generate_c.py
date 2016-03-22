@@ -54,10 +54,22 @@ def generate_c_code_for_op(op, name_gen):
 def initialize_default_values(values):
     c_code = ''
     for v in values:
-        if v is builtin.ZERO:
+        if v is builtin.ZERO.value:
             for suffix in ['', '_i_p', '_i_m', '_j_p', '_j_m']:
                 c_code += 'const float {0}{1}[1] = {{0.0f}};\n'.format(
                                        v._name, suffix)
+        elif v is builtin.I.value:
+            for suffix, shift in zip(['', '_i_p', '_i_m', '_j_p', '_j_m'],
+                                     [0,  +1,     -1,     0,      0]):
+                c_code += ('const float {0}{1}[1] = ' +
+                           '{{(float)(i+({2}))}};\n').format(
+                                       v._name, suffix, shift)
+        elif v is builtin.J.value:
+            for suffix, shift in zip(['', '_i_p', '_i_m', '_j_p', '_j_m'],
+                                     [0,  0,      0,      +1,     -1]):
+                c_code += ('const float {0}{1}[1] = ' +
+                           '{{(float)(j+({2}))}};\n').format(
+                                       v._name, suffix, shift)
     return c_code + '\n'
 
 def generate_c_code(stage):
