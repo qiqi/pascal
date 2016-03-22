@@ -17,6 +17,7 @@ import numpy as np
 import theano
 import theano.tensor as T
 import pulp
+import graphviz
 
 from . import operators
 from .operators import infer_context
@@ -70,11 +71,11 @@ class stencil_array(object):
     # --------------------------- operations ------------------------------ #
 
     # asks ndarray to use the __rops__ defined in this class
-    __arraj_priority__ = 3000
+    __array_priority__ = 3000
 
     def __add__(self, a):
-        if hasattr(a, '__arraj_priority__') and \
-                a.__arraj_priority__ > self.__arraj_priority__:
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
             return a.__add__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.add(self.value, a).output)
@@ -83,8 +84,8 @@ class stencil_array(object):
         return self.__add__(a)
 
     def __sub__(self, a):
-        if hasattr(a, '__arraj_priority__') and \
-                a.__arraj_priority__ > self.__arraj_priority__:
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
             return a.__rsub__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.sub(self.value, a).output)
@@ -94,8 +95,8 @@ class stencil_array(object):
         return stencil_array(operators.sub(a, self.value).output)
 
     def __mul__(self, a):
-        if hasattr(a, '__arraj_priority__') and \
-                a.__arraj_priority__ > self.__arraj_priority__:
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
             return a.__rmul__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.mul(self.value, a).output)
@@ -104,8 +105,8 @@ class stencil_array(object):
         return self.__mul__(a)
 
     def __truediv__(self, a):
-        if hasattr(a, '__arraj_priority__') and \
-                a.__arraj_priority__ > self.__arraj_priority__:
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
             return a.__rtruediv__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.truediv(self.value, a).output)
@@ -115,8 +116,8 @@ class stencil_array(object):
         return stencil_array(operators.truediv(a, self.value).output)
 
     def __pow__(self, a):
-        if hasattr(a, '__arraj_priority__') and \
-                a.__arraj_priority__ > self.__arraj_priority__:
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
             return a.__rpow__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.pow(self.value, a).output)
@@ -239,13 +240,14 @@ def mean(a, axis=None):
 #                             built-in source array                            #
 # ============================================================================ #
 
-G_ZERO = stencil_array_value()
+class builtin:
+    ZERO = stencil_array_value()
 
 def ones(shape=()):
-    return stencil_array(G_ZERO) + np.ones(shape)
+    return stencil_array(builtin.ZERO) + np.ones(shape)
 
 def zeros(shape=()):
-    return stencil_array(G_ZERO) + np.zeros(shape)
+    return stencil_array(builtin.ZERO) + np.zeros(shape)
 
 
 # ============================================================================ #
@@ -369,7 +371,7 @@ def _solve_linear_program(linear_program, verbose):
         print('\tsolving {0}x{1} linear program'.format(*lpSize))
         sys.stdout.flush()
         t0 = time.time()
-    res = _solve_linear_program_glpk(linear_program, verbose)
+    res = _solve_linear_program_glpk(linear_program, verbose==True)
     if verbose:
         print('Decomposed into {0} atomic stages'.format(res.x[-1] + 1))
         print('\tobjective function = {0}'.format(res.obj))
@@ -394,6 +396,41 @@ def _assign_lp_results_to_values(lp_result, values):
 
 # ---------------------------------------------------------------------------- #
 
+def visualize_graph(filename, upstream_values, downstream_values,
+                    view=True, color=None):
+    sorted_values = list(copymodule.copy(upstream_values))
+    unsorted_values, triburary_values = discover_values(
+            upstream_values, downstream_values)
+    sort_values(sorted_values, unsorted_values)
+    assert unsorted_values == []
+    dot = graphviz.Digraph(graph_attr={'rankdir': 'LR'})
+    for i, v in enumerate(triburary_values + sorted_values):
+        argv = {}
+        if v in upstream_values + downstream_values:
+            argv['shape'] = 'doublecircle'
+        if v in triburary_values:
+            argv['shape'] = 'square'
+        dot.node(str(i), **argv)
+        v._valueId = i
+        if hasattr(v, 'owner') and v.owner:
+            for inp in v.owner.inputs:
+                if _is_like_sa_value(inp):
+                    argv = {}
+                    if v.owner.access_neighbor:
+                        argv['penwidth'] = '15'
+                    if hasattr(v, 'create_stage'):
+                        argv['colorscheme'] = 'set19'
+                        argv['color'] = str(v.create_stage + 1)
+                    elif color is not None:
+                        argv['colorscheme'] = 'set19'
+                        argv['color'] = str(color + 1)
+                    dot.edge(str(inp._valueId), str(i), **argv)
+    for v in triburary_values + sorted_values:
+        del v._valueId
+    dot.render(filename, view=view)
+
+# ---------------------------------------------------------------------------- #
+
 def decompose(upstream_values, downstream_values, verbose=True):
     values, triburary_values = discover_values(
             upstream_values, downstream_values)
@@ -404,9 +441,13 @@ def decompose(upstream_values, downstream_values, verbose=True):
         v._valueId = i
     lp = _build_linear_program(all_values, upstream_values, downstream_values)
     lp_res = _solve_linear_program(lp, verbose)
-    num_stages = _assign_lp_results_to_values(lp_res, all_values)
     for v in all_values:
         del v._valueId
+    if verbose == 'visualize':
+        visualize_graph('input.gv', upstream_values, downstream_values, False)
+    num_stages = _assign_lp_results_to_values(lp_res, all_values)
+    if verbose == 'visualize':
+        visualize_graph('color.gv', upstream_values, downstream_values, False)
     # create each atomic stage from its upstream and downstream values
     stages = []
     stage_upstream = list(upstream_values)
@@ -422,6 +463,10 @@ def decompose(upstream_values, downstream_values, verbose=True):
         stages[k] = stack_downstream(stages[k])
     for k in range(1, num_stages):
         stages[k] = stack_upstream(stages[k])
+    if verbose == 'visualize':
+        for k, s in enumerate(stages):
+            visualize_graph('decomp_{0}.gv'.format(k),
+                            s.upstream_values, s.downstream_values, False, k)
     return stages
 
 # ---------------------------------------------------------------------------- #

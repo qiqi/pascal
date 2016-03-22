@@ -3,4 +3,5 @@ theano >= 0.7
 PuLP >= 1.6
 dill >= 0.2
 mpi4py >= 2.0
+graphviz >= 0.4
 pytest-cov

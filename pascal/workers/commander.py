@@ -122,7 +122,7 @@ class MPI_Commander(object):
 
 
 def test_classic_mpi():
-    n = 1000
+    n = 100
     comm = MPI_Commander('classic_mpi', n, n, 2, 2)
     def heat(w):
         return w.i_p + w.i_m - 2 * w
@@ -136,7 +136,7 @@ def test_classic_mpi():
     # print('Single thread: ', time.time() - t0)
     t0 = time.time()
     stages = decompose_function(step, stencil_array())
-    comm.process_job(stages, 2000, np.zeros([n,n]))
+    comm.process_job(stages, 1000, np.zeros([n,n]))
     print('Time =', time.time() - t0)
     comm.dismiss()
 
