@@ -44,15 +44,19 @@ def subs_and_write(stages, template_path, tmp_path):
         with open(os.path.join(tmp_path, name + '.h'), 'wt') as f:
             f.write(substitute_stage_h(stage_h, name, stage, max_vars))
 
-def compile_and_load(tmp_path, compiler='gcc'):
+def compile_and_load(tmp_path, compiler='gcc', cflags=['-O3'], lflags=['-O3']):
     compiler = subprocess.check_output(['which', compiler]).decode().strip()
     src = os.path.join(tmp_path, 'step.c')
     obj = os.path.join(tmp_path, 'step.o')
     so = os.path.join(tmp_path, 'step.so')
-    subprocess.check_call([
-        compiler, '-O3', '--std=c99', '--PIC', '-c', src, '-o', obj
-    ])
-    subprocess.check_call([compiler, '-O3', '--shared', obj, '-o', so])
+    cflags = list(cflags)
+    subprocess.check_call(
+        [compiler, '--std=c99', '--PIC'] + cflags + ['-c', src, '-o', obj]
+    )
+    lflags = list(lflags)
+    subprocess.check_call(
+        [compiler] + list(lflags) + ['--shared', obj, '-o', so]
+    )
     return open(so, 'rb').read()
 
 def build(stages):

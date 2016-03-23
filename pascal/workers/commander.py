@@ -19,6 +19,37 @@ from pascal.sa2d_generate_c import decompose_function, stencil_array
 
 import pascal.sa2d_single_thread
 
+#==============================================================================#
+#                                                                              #
+#==============================================================================#
+
+class WorkerVariable(object):
+    '''
+    When instances of this class are passed from commander to worker,
+    the worker knows that it represents a variable that is already in its
+    variables dictionary; the key of the existing variable is stored in key.
+    '''
+    __is_worker_variable__ = True
+    __global_variable_key__ = 0
+
+    def __init__(self, key=None):
+        if key is None:
+            key = WorkerVariable.__global_variable_key__
+            WorkerVariable.__global_variable_key__ += 1
+        self.key = key
+
+    def __repr__(self):
+        return 'WorkerVariable({0})'.format(repr(self.key))
+
+# ---------------------------------------------------------------------------- #
+
+def is_worker_variable(variable):
+    return hasattr(variable, '__is_worker_variable__')
+
+#==============================================================================#
+#                                                                              #
+#==============================================================================#
+
 class MPI_Commander(object):
     '''
     Creates a set of MPI worker processes and commands them to various
@@ -27,8 +58,9 @@ class MPI_Commander(object):
     >>> comm = MPI_Commander(100, 100, 2, 2)
 
     >>> i_plus_j = WorkerVariable()
+    >>> stages = decompose_function(lambda: 
 
-    >>> comm.func(operator.add, (I, J), result_var=i_plus_j)
+    >>> comm.func(stages, (), result_var=i_plus_j)
     [None, None, None, None]
 
     >>> comm.func(np.shape, (i_plus_j,))

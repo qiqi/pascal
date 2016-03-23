@@ -20,7 +20,6 @@ import theano.tensor as T
 
 from . import mpi_worker_commander as commander
 from . import sa2d_decomp
-from .sa2d_decomp import infer_context
 
 #==============================================================================#
 

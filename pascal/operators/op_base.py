@@ -38,8 +38,8 @@ class OpBase(object):
                 self.inputs.append(inp)
             else:
                 try:
-                    inp = np.array(inp, float)
-                except IndexError:
+                    inp = np.array(inp, np.float32)
+                except (IndexError, TypeError):
                     pass
                 self.inputs.append(inp)
         self.name = name
@@ -47,7 +47,7 @@ class OpBase(object):
         produce_dummy = (lambda a:
             dummy_func(a.shape)
             if _is_like_sa_value(a)
-            else a
+            else np.array(a, np.float32)
             )
         dummy_inputs = tuple(map(produce_dummy, self.inputs))
         if shape is None:
