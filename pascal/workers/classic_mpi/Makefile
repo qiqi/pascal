@@ -4,10 +4,13 @@ LOPT = -O3 -g -Wall -ldl
 
 default:	main
 
-main:	main.o
+main:	main.o exchange_halo.o
 	$(CC) $(LOPT) -o $@ $^
 
-main.o:	main.c
+main.o:	main.cpp exchange_halo.h
+	$(CC) $(COPT) -c $<
+
+exchange_halo.o:	exchange_halo.c exchange_halo.h
 	$(CC) $(COPT) -c $<
 
 clean:

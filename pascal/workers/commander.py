@@ -123,13 +123,15 @@ class MPI_Commander(object):
     def _recv_outputs(self, shape):
         outputs = np.empty(shape, np.float32)
         self.comm.Gather(None, outputs, MPI.ROOT)
+        return outputs
 
     def process_job(self, stages, num_steps, inputs):
         max_vars = max(s.downstream_values[0].size for s in stages)
         num_inputs = stages[0].upstream_values[0].size
+        num_inputs = stages[-1].downstream_values[0].size
         binary = self.worker.build(stages)
         job = np.array([
-            max_vars, num_inputs, num_steps, len(binary)
+            max_vars, num_inputs, num_outputs, num_steps, len(binary)
         ], np.uint64)
         self.comm.Bcast(job, MPI.ROOT)
         self.comm.Bcast(np.frombuffer(binary, np.uint8), MPI.ROOT)
@@ -137,7 +139,8 @@ class MPI_Commander(object):
         assert inputs.shape[:2] == (self.ni, self.nj)
         assert inputs.size == self.ni * self.nj * num_inputs
         self._send_inputs(inputs)
-        self._recv_outputs(inputs.shape)
+        output_shape = stages[-1].downstream_values[0].shape
+        return self._recv_outputs((self.ni, self.nj) + output_shape)
 
     # -------------------------------------------------------------------- #
 
