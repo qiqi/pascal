@@ -26,6 +26,7 @@ class Job {
     public:
 
     Job(MPI_Comm comm, uint64_t i0, uint64_t i1, uint64_t j0, uint64_t j1);
+    bool is_empty() { return num_inputs_ == 0 && num_outputs_ == 0; }
     ~Job();
     void complete();
 };

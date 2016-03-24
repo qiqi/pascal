@@ -128,7 +128,7 @@ class MPI_Commander(object):
     def process_job(self, stages, num_steps, inputs):
         max_vars = max(s.downstream_values[0].size for s in stages)
         num_inputs = stages[0].upstream_values[0].size
-        num_inputs = stages[-1].downstream_values[0].size
+        num_outputs = stages[-1].downstream_values[0].size
         binary = self.worker.build(stages)
         job = np.array([
             max_vars, num_inputs, num_outputs, num_steps, len(binary)
@@ -146,7 +146,7 @@ class MPI_Commander(object):
 
     def dismiss(self):
         if self.comm is not None:
-            self.comm.Bcast(np.zeros(4, np.uint64), MPI.ROOT)
+            self.comm.Bcast(np.zeros(5, np.uint64), MPI.ROOT)
             self.comm.Barrier()
             self.comm = None
 

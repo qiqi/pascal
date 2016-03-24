@@ -9,9 +9,10 @@
 #include<mpi.h>
 
 #include "job.h"
+#include "exchange_halo.h"
 
 static struct {
-    uint64_t i_range[2], j_range[2];
+    uint64_t i0, i1, j0, j1;
     uint64_t neighbor_ranks[4];
     float * p_workspace;
     MPI_Comm comm;
@@ -34,17 +35,15 @@ int main(int argc, char * argv[])
             worker_global_const.global_mpi_rank);
     // next job
     for (uint64_t i_job = 0; ; ++i_job) {
-        job_t job = recv_job();
-        if (job.num_inputs == 0) {
-            break;
-        }
-    fprintf(stderr, "Worker %d starting job %d %d %d %d\n",
-            worker_global_const.global_mpi_rank,
-            (int)job.max_vars,
-            (int)job.num_inputs,
-            (int)job.num_steps,
-            (int)job.step_func_bytes);
-        complete_job(job);
+        Job job(worker_global_const.comm,
+                worker_global_const.i0,
+                worker_global_const.i1,
+                worker_global_const.j0,
+                worker_global_const.j1);
+        if (job.is_empty()) break;
+        std::cout << "Worker " << worker_global_const.global_mpi_rank
+                  << " starting job " << i_job << std::endl;
+        job.complete();
     }
     MPI_Barrier(worker_global_const.comm);
     MPI_Finalize();
