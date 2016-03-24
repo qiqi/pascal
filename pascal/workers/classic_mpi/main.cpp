@@ -41,9 +41,17 @@ int main(int argc, char * argv[])
                 worker_global_const.j0,
                 worker_global_const.j1);
         if (job.is_empty()) break;
+        Variable input(0, job.input_size(), 
+                       worker_global_const.i1 - worker_global_const.i0,
+                       worker_global_const.j1 - worker_global_const.j0);
+        Variable output(0, job.output_size(), 
+                        worker_global_const.i1 - worker_global_const.i0,
+                        worker_global_const.j1 - worker_global_const.j0);
         std::cout << "Worker " << worker_global_const.global_mpi_rank
                   << " starting job " << i_job << std::endl;
-        job.complete();
+        input.receive(worker_global_const.comm);
+        job.complete(input, output);
+        output.send(worker_global_const.comm);
     }
     MPI_Barrier(worker_global_const.comm);
     MPI_Finalize();

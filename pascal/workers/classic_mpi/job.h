@@ -2,6 +2,8 @@
 
 #include<mpi.h>
 
+#include "variable.h"
+
 class Job {
     private:
 
@@ -20,13 +22,14 @@ class Job {
     step_func_t step_func_;
 
     void recv_job_step_func_();
-    void recv_job_inputs_();
-    void send_job_outputs_();
+    void alloc_workspace_();
 
     public:
 
     Job(MPI_Comm comm, uint64_t i0, uint64_t i1, uint64_t j0, uint64_t j1);
     bool is_empty() { return num_inputs_ == 0 && num_outputs_ == 0; }
+    void complete(const Variable & input, Variable & output);
+    uint64_t input_size() const { return num_inputs_; }
+    uint64_t output_size() const { return num_outputs_; }
     ~Job();
-    void complete();
 };

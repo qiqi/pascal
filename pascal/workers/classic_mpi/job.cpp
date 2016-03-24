@@ -18,9 +18,9 @@ Job::Job(MPI_Comm comm, uint64_t i0, uint64_t i1, uint64_t j0, uint64_t j1)
       step_func_(0)
 {
     MPI_Bcast(job_consts_, 5, MPI_UINT64_T, 0, comm_);
+    alloc_workspace_();
     if (num_inputs_ > 0) {
         recv_job_step_func_();
-        recv_job_inputs_();
     }
 }
 
@@ -34,11 +34,12 @@ Job::~Job()
     }
 }
 
-void Job::complete()
+void Job::complete(const Variable & input, Variable & output)
 {
+    input.copy_to_workspace(p_workspace_);
     step_func_(i0_, i1_, j0_, j1_, p_workspace_, num_steps_,
                (void*)&exchange_halo_begin, (void*)&exchange_halo_end);
-    send_job_outputs_();
+    output.copy_from_workspace(p_workspace_);
 }
 
 void Job::recv_job_step_func_()
@@ -70,43 +71,10 @@ void Job::recv_job_step_func_()
     unlink(tmp_job_so);
 }
 
-void Job::recv_job_inputs_()
+void Job::alloc_workspace_()
 {
     uint64_t ni = i1_ - i0_, nj = j1_ - j0_;
     uint64_t num_floats = max_vars_ * 2 * (ni+2) * (nj+2);
     p_workspace_ = (float*) malloc(sizeof(float) * num_floats);
-
-    uint64_t half_workspace = num_floats / 2;
-    float * p_recv = p_workspace_ + half_workspace;
-    const uint64_t input_size = num_inputs_ * ni * nj;
-    MPI_Scatter(0, 0, 0, p_recv, input_size, MPI_FLOAT, 0, comm_);
-
-    for (uint64_t i = 0; i < ni; ++i) {
-        for (uint64_t j = 0; j < nj; ++j) {
-            uint64_t ind_src = i * nj + j;
-            uint64_t ind_des = (i + 1) * (nj + 2) + (j + 1);
-            float * p_src = p_recv + ind_src * num_inputs_;
-            float * p_des = p_workspace_ + ind_des * max_vars_;
-            memcpy(p_des, p_src, sizeof(float) * num_inputs_);
-        }
-    }
-}
-
-void Job::send_job_outputs_()
-{
-    uint64_t ni = i1_ - i0_, nj = j1_ - j0_;
-    uint64_t half_workspace = max_vars_ * (ni+2) * (nj+2);
-    float * p_send = p_workspace_ + half_workspace;
-    for (uint64_t i = 0; i < ni; ++i) {
-        for (uint64_t j = 0; j < nj; ++j) {
-            uint64_t ind_des = i * nj + j;
-            uint64_t ind_src = (i + 1) * (nj + 2) + (j + 1);
-            float * p_des = p_send + ind_des * num_outputs_;
-            float * p_src = p_workspace_ + ind_src * max_vars_;
-            memcpy(p_des, p_src, sizeof(float) * num_outputs_);
-        }
-    }
-    const uint64_t output_size = num_outputs_ * ni * nj;
-    MPI_Gather(p_send, output_size, MPI_FLOAT, NULL, 0, MPI_FLOAT, 0, comm_);
 }
 
