@@ -298,15 +298,17 @@ def visualize_graph(filename, upstream_values, downstream_values,
         if hasattr(v, 'owner') and v.owner:
             for inp in v.owner.inputs:
                 if _is_like_sa_value(inp):
-                    argv = {}
-                    if v.owner.access_neighbor:
-                        argv['penwidth'] = '15'
+                    argv = {'arrowhead': 'vee', 'penwidth': '3'}
                     if hasattr(v, 'create_stage'):
                         argv['colorscheme'] = 'set19'
                         argv['color'] = str(v.create_stage + 1)
                     elif color is not None:
                         argv['colorscheme'] = 'set19'
                         argv['color'] = str(color + 1)
+                    else:
+                        argv['color'] = 'black'
+                    if v.owner.access_neighbor:
+                        argv['color'] = '{0}:white:{0}:white:{0}'.format(argv['color'])
                     dot.edge(str(inp._valueId), str(i), **argv)
     for v in triburary_values + sorted_values:
         del v._valueId

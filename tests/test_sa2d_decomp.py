@@ -230,8 +230,8 @@ class _TestMultiStage(unittest.TestCase):
     def testHeat(self):
         def heatMidpoint(u):
             dx, dt = 0.1, 0.01
-            uh = u + 0.5 * dt * (u.i_m + u.i_p + u.j_m + u.j_p - 4 * u) / dx**2
-            return u + dt * (uh.i_m + uh.i_p + uh.j_m + uh.j_p - 4 * uh) / dx**2
+            uh = u + 0.5 * dt / dx**2 * (u.i_m + u.i_p - 2 * u)
+            return u + dt / dx**2 * (uh.i_m + uh.i_p - 2 * uh)
 
         G = sys.modules[__name__]
         heatStages = decompose_function(heatMidpoint, stencil_array(),

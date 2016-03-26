@@ -5,6 +5,7 @@ my_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(my_path, '..'))
 
 from pascal.sa2d_decomp import *
+from pascal.operators import infer_context
 
 DISS_COEFF = 0.0025
 gamma, R = 1.4, 287.
