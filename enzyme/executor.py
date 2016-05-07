@@ -4,7 +4,7 @@ import tempfile
 from subprocess import call, Popen, PIPE
 
 import numpy as np
-from c_code import generate_c_code
+from .c_code import generate_c_code
 
 _my_path = os.path.dirname(os.path.abspath(__file__))
 

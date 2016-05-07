@@ -1,2 +1,2 @@
-from symbolic_variable import *
-from executor import execute
+from .symbolic_variable import *
+from .executor import execute
