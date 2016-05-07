@@ -3,7 +3,7 @@ import string
 
 import numpy as np
 
-from pascal.sa2d_decomp_value import _is_like_sa_value, stencil_array_value
+from enzyme.symbolic_value import _is_like_sa_value, stencil_array_value
 
 def infer_context(a):
     '''
@@ -30,7 +30,7 @@ class OpBase(object):
         inputs: a list of stencil array
     '''
     def __init__(self, py_operation, inputs, access_neighbor=False,
-                 dummy_func=np.ones, shape=None, name=None):
+                 shape_keeper=np.ones, shape=None, name=None):
         self.py_operation = py_operation
         self.inputs = []
         for inp in inputs:
@@ -44,14 +44,14 @@ class OpBase(object):
                 self.inputs.append(inp)
         self.name = name
 
-        produce_dummy = (lambda a:
-            dummy_func(a.shape)
+        produce_shape_keepers = (lambda a:
+            shape_keeper(a.shape)
             if _is_like_sa_value(a)
             else np.array(a, np.float32)
             )
-        dummy_inputs = tuple(map(produce_dummy, self.inputs))
+        shape_keeper_inputs = tuple(map(produce_shape_keepers, self.inputs))
         if shape is None:
-            shape = py_operation(*dummy_inputs).shape
+            shape = py_operation(*shape_keeper_inputs).shape
 
         self.access_neighbor = access_neighbor
         self.output = stencil_array_value(shape, self)
@@ -138,5 +138,3 @@ class UnitaryFunction(OpBase):
                     a_name, i,
                     self.c_function_str)
         return lines
-
-
