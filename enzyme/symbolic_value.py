@@ -57,19 +57,20 @@ class builtin:
     ZERO = stencil_array_value()
     I = stencil_array_value()
     J = stencil_array_value()
+    K = stencil_array_value()
 
 
 # ============================================================================ #
 #                                atomic stage                                  #
 # ============================================================================ #
 
-def discover_values(upstream_values, downstream_values):
+def discover_values(source_values, sink_values):
     discovered_values = []
     discovered_triburary_values = []
     def discover_values_from(v):
         if not hasattr(v, 'owner'):
             return
-        if v in upstream_values:
+        if v in source_values:
             return
         if v.owner is None:
             if v not in discovered_triburary_values:
@@ -78,7 +79,7 @@ def discover_values(upstream_values, downstream_values):
             discovered_values.append(v)
             for v_inp in v.owner.inputs:
                 discover_values_from(v_inp)
-    for v in downstream_values:
+    for v in sink_values:
         discover_values_from(v)
     return discovered_values, discovered_triburary_values
 
@@ -97,26 +98,31 @@ def sort_values(sorted_values, unsorted_values):
         assert removed_any
 
 class AtomicStage(object):
-    def __init__(self, upstream_values, downstream_values):
-        sorted_values = copymodule.copy(upstream_values)
+    '''
+    Immutable compact stage
+    '''
+    def __init__(self, source_values, sink_values):
+        sorted_values = copymodule.copy(source_values)
         unsorted_values, self.triburary_values = discover_values(
-                upstream_values, downstream_values)
+                source_values, sink_values)
         sort_values(sorted_values, unsorted_values)
         assert unsorted_values == []
-        self.upstream_values = sorted_values[:len(upstream_values)]
-        self.sorted_values = sorted_values[len(upstream_values):]
-        self.downstream_values = copymodule.copy(downstream_values)
+        self.source_values = sorted_values[:len(source_values)]
+        self.sorted_values = sorted_values[len(source_values):]
+        self.sink_values = copymodule.copy(sink_values)
 
-    def __call__(self, upstream_values, triburary_values=[]):
-        upstream_values = list(upstream_values)
-        if isinstance(triburary_values, dict):
-            triburary_values = [triburary_values[a]
-                                for a in self.triburary_values]
-        else:
-            triburary_values = list(triburary_values)
+    def __call__(self, source_values, triburary):
+        if not isinstance(source_values, (tuple, list)):
+            source_values = [source_values]
+        source_values = list(source_values)
+        assert len(self.source_values) == len(source_values)
+        if hasattr(triburary, '__call__'):
+            triburary_values = [triburary(v) for v in self.triburary_values]
+        elif hasattr(triburary, '__getitem__'):
+            triburary_values = [triburary[v] for v in self.triburary_values]
+        values = self.source_values + self.triburary_values
+        tmp_values = source_values + triburary_values
         # _tmp attributes are assigned to inputs
-        values = self.upstream_values + self.triburary_values
-        tmp_values = upstream_values + triburary_values
         assert len(values) == len(tmp_values)
         for v, v_tmp in zip(values, tmp_values):
             assert not hasattr(v, '_tmp')
@@ -128,11 +134,14 @@ class AtomicStage(object):
             inputs_tmp = [_tmp(v_inp) for v_inp in v.owner.inputs]
             v._tmp = v.owner.perform(inputs_tmp)
         # _tmp attributes are extracted from outputs then deleted from all
-        downstream_values = tuple(v._tmp for v in self.downstream_values)
+        sink_values = tuple(v._tmp for v in self.sink_values)
         values += self.sorted_values
         for v in values:
             del v._tmp
-        return downstream_values
+        return sink_values
+
+    def __hash__(self):
+        return id(self)
 
 # ============================================================================ #
 #                                decomposition                                 #
@@ -145,7 +154,7 @@ GLOBAL_MAX_STAGES = -1
 
 # ---------------------------------------------------------------------------- #
 
-def _build_linear_program(all_values, upstream_values, downstream_values):
+def _build_linear_program(all_values, source_values, sink_values):
     '''
     solution: [c, k, g, K]
     c: length n array of integers, the stage in which a value is created;
@@ -170,11 +179,11 @@ def _build_linear_program(all_values, upstream_values, downstream_values):
     # build constraints
     z = np.zeros(n)
     e = np.eye(n)
-    for a in upstream_values:
+    for a in source_values:
         i = a._valueId
         # an input value is born at Stage 0
         add_eq(e[i], z, z, 0, 0)
-    for a in downstream_values:
+    for a in sink_values:
         i = a._valueId
         # an output value is killed at Stage K (last stage)
         add_eq(z, e[i], z, -1, 0)
@@ -279,17 +288,17 @@ def _assign_lp_results_to_values(lp_result, values):
 
 # ---------------------------------------------------------------------------- #
 
-def visualize_graph(filename, upstream_values, downstream_values,
+def visualize_graph(filename, source_values, sink_values,
                     view=True, color=None):
-    sorted_values = list(copymodule.copy(upstream_values))
+    sorted_values = list(copymodule.copy(source_values))
     unsorted_values, triburary_values = discover_values(
-            upstream_values, downstream_values)
+            source_values, sink_values)
     sort_values(sorted_values, unsorted_values)
     assert unsorted_values == []
     dot = graphviz.Digraph(graph_attr={'rankdir': 'LR'})
     for i, v in enumerate(triburary_values + sorted_values):
         argv = {}
-        if v in upstream_values + downstream_values:
+        if hasattr(v, 'has_neighbor') and v.has_neighbor:
             argv['shape'] = 'doublecircle'
         if v in triburary_values:
             argv['shape'] = 'square'
@@ -298,7 +307,7 @@ def visualize_graph(filename, upstream_values, downstream_values,
         if hasattr(v, 'owner') and v.owner:
             for inp in v.owner.inputs:
                 if _is_like_sa_value(inp):
-                    argv = {'arrowhead': 'vee', 'penwidth': '3'}
+                    argv = {'penwidth': '3'}
                     if hasattr(v, 'create_stage'):
                         argv['colorscheme'] = 'set19'
                         argv['color'] = str(v.create_stage + 1)
@@ -308,7 +317,9 @@ def visualize_graph(filename, upstream_values, downstream_values,
                     else:
                         argv['color'] = 'black'
                     if v.owner.access_neighbor:
-                        argv['color'] = '{0}:white:{0}:white:{0}'.format(argv['color'])
+                        argv['arrowsize'] = '3'
+                        argv['color'] = '{0}:white:{0}:white:{0}'.format(
+                                argv['color'])
                     dot.edge(str(inp._valueId), str(i), **argv)
     for v in triburary_values + sorted_values:
         del v._valueId
@@ -316,32 +327,32 @@ def visualize_graph(filename, upstream_values, downstream_values,
 
 # ---------------------------------------------------------------------------- #
 
-def decompose(upstream_values, downstream_values, verbose=True):
+def decompose(source_values, sink_values, verbose=True):
     if verbose == 'visualize':
-        visualize_graph('input.gv', upstream_values, downstream_values, False)
+        visualize_graph('input.gv', source_values, sink_values, False)
     values, triburary_values = discover_values(
-            upstream_values, downstream_values)
+            source_values, sink_values)
     all_values = (list(values) +
                   list(triburary_values) +
-                  list(upstream_values))
+                  list(source_values))
     for i, v in enumerate(all_values):
         v._valueId = i
-    lp = _build_linear_program(all_values, upstream_values, downstream_values)
+    lp = _build_linear_program(all_values, source_values, sink_values)
     lp_res = _solve_linear_program(lp, verbose)
     for v in all_values:
         del v._valueId
     num_stages = _assign_lp_results_to_values(lp_res, all_values)
     if verbose == 'visualize':
-        visualize_graph('color.gv', upstream_values, downstream_values, False)
+        visualize_graph('color.gv', source_values, sink_values, False)
     stages = []
-    stage_upstream = list(upstream_values)
+    stage_source = list(source_values)
     for k in range(1, num_stages):
-        stage_downstream = [v for v in all_values
+        stage_sink = [v for v in all_values
                             if v.create_stage < k and v.kill_stage >= k]
-        stages.append(AtomicStage(stage_upstream, stage_downstream))
-        stage_upstream = stage_downstream
-    stage_downstream = list(downstream_values)
-    stages.append(AtomicStage(stage_upstream, stage_downstream))
+        stages.append(AtomicStage(stage_source, stage_sink))
+        stage_source = stage_sink
+    stage_sink = list(sink_values)
+    stages.append(AtomicStage(stage_source, stage_sink))
     return stages
 
 ################################################################################

@@ -3,8 +3,8 @@ import itertools
 
 import numpy as np
 
-from .sa2d_decomp import *
-from .sa2d_decomp import _is_like_sa_value
+from .symbolic_variable import *
+from .symbolic_variable import _is_like_sa_value
 
 def name_generator():
     for i in itertools.count():
@@ -20,7 +20,7 @@ def define_constant(v, name):
 def copy_to_output(name, size):
     c_code = ''
     for i in range(size):
-        c_code += 'downstream[{0}] = {1}[{0}];\n'.format(i, name)
+        c_code += 'sink[{0}] = {1}[{0}];\n'.format(i, name)
     return c_code
 
 def generate_c_code_for_op(op, name_gen):
@@ -40,7 +40,7 @@ def generate_c_code_for_op(op, name_gen):
     output_name = next(name_gen)
     c_code += op.c_code(input_names, output_name) + '\n'
     if v.has_neighbor:
-        for a in ['_i_m', '_i_p', '_j_m', '_j_p']:
+        for a in ['_im', '_ip', '_jm', '_jp', '_km', '_kp']:
             input_nbr_names = []
             for inp, name in zip(op.inputs, input_names):
                 if _is_like_sa_value(inp):
@@ -55,28 +55,34 @@ def initialize_default_values(values):
     c_code = ''
     for v in values:
         if v is builtin.ZERO.value:
-            for suffix in ['', '_i_p', '_i_m', '_j_p', '_j_m']:
+            for suffix in ['', '_ip', '_im', '_jp', '_jm', '_km', '_kp']:
                 c_code += 'const float {0}{1}[1] = {{0.0f}};\n'.format(
                                        v._name, suffix)
         elif v is builtin.I.value:
-            for suffix, shift in zip(['', '_i_p', '_i_m', '_j_p', '_j_m'],
-                                     [0,  +1,     -1,     0,      0]):
+            for suffix, shift in zip(['','_ip','_im','_jp','_jm','_km','_kp'],
+                                     [0,   +1,   -1,   0,     0,    0,    0]):
                 c_code += ('const float {0}{1}[1] = ' +
                            '{{(float)(i+({2}))}};\n').format(
                                        v._name, suffix, shift)
         elif v is builtin.J.value:
-            for suffix, shift in zip(['', '_i_p', '_i_m', '_j_p', '_j_m'],
-                                     [0,  0,      0,      +1,     -1]):
+            for suffix, shift in zip(['','_ip','_im','_jp','_jm','_km','_kp'],
+                                     [0,   0,     0,   +1,   -1,    0,    0]):
                 c_code += ('const float {0}{1}[1] = ' +
                            '{{(float)(j+({2}))}};\n').format(
+                                       v._name, suffix, shift)
+        elif v is builtin.K.value:
+            for suffix, shift in zip(['','_ip','_im','_jp','_jm','_km','_kp'],
+                                     [0,    0,    0,    0,    0,   -1,   +1]):
+                c_code += ('const float {0}{1}[1] = ' +
+                           '{{(float)(k+({2}))}};\n').format(
                                        v._name, suffix, shift)
     return c_code + '\n'
 
 def generate_c_code(stage):
-    assert len(stage.upstream_values) == 1
-    assert len(stage.downstream_values) == 1
-    init_values = stage.upstream_values + stage.triburary_values
-    names = ['upstream'] + ['triburary_{0}'.format(i)
+    assert len(stage.source_values) == 1
+    assert len(stage.sink_values) == 1
+    init_values = stage.source_values + stage.triburary_values
+    names = ['source'] + ['triburary_{0}'.format(i)
                             for i in range(len(stage.triburary_values))]
     for v, name in zip(init_values, names):
         assert not hasattr(v, '_name')

@@ -1,6 +1,6 @@
-###############################################################################
+################################################################################
 #                                                                              #
-#       sa2d_decomp.py copyright(c) Qiqi Wang 2015 (qiqi.wang@gmail.com)       #
+#   symbolic_variable.py copyright(c) Qiqi Wang 2015 (qiqi.wang@gmail.com)     #
 #                                                                              #
 ################################################################################
 
@@ -10,10 +10,12 @@ import sys
 import numpy as np
 
 from . import operators
-from . import sa2d_decomp_value
-from .sa2d_decomp_value import _is_like_sa_value, stencil_array_value
-from .sa2d_decomp_value import builtin as builtin_values
-from .sa2d_decomp_value import AtomicStage
+from . import symbolic_value
+from .symbolic_value import _is_like_sa_value, stencil_array_value
+from .symbolic_value import builtin as builtin_values
+from .symbolic_value import AtomicStage
+
+__all__ = ['decompose', 'im', 'ip', 'km', 'kp', 'jm', 'jp', 'builtin']
 
 # ============================================================================ #
 
@@ -128,6 +130,21 @@ class stencil_array(object):
     def __neg__(self):
         return stencil_array(operators.neg(self.value).output)
 
+    # ------------------------- neighbor access --------------------------- #
+
+    @property
+    def im(self): return im(self)
+    @property
+    def ip(self): return ip(self)
+    @property
+    def jm(self): return jm(self)
+    @property
+    def jp(self): return jp(self)
+    @property
+    def km(self): return km(self)
+    @property
+    def kp(self): return kp(self)
+
     # ------------------------- math functions ---------------------------- #
 
     def sum(self, axis=None):
@@ -151,23 +168,6 @@ class stencil_array(object):
     def copy(self):
         return copy(self)
 
-    # ------------------------ neighbor access -------------------------- #
-    @property
-    def i_p(self):
-        return stencil_array(operators.i_p(self.value).output)
-
-    @property
-    def i_m(self):
-        return stencil_array(operators.i_m(self.value).output)
-
-    @property
-    def j_p(self):
-        return stencil_array(operators.j_p(self.value).output)
-
-    @property
-    def j_m(self):
-        return stencil_array(operators.j_m(self.value).output)
-
     # ---------------------------- indexing ------------------------------- #
 
     def __getitem__(self, ind):
@@ -179,6 +179,28 @@ class stencil_array(object):
         assert self.shape == owner.output.shape
         self.value = owner.output
 
+
+# ============================================================================ #
+#                              neighbor access                                 #
+# ============================================================================ #
+
+def ip(a):
+    return stencil_array(operators.ip(a.value).output)
+
+def im(a):
+    return stencil_array(operators.im(a.value).output)
+
+def jp(a):
+    return stencil_array(operators.jp(a.value).output)
+
+def jm(a):
+    return stencil_array(operators.jm(a.value).output)
+
+def kp(a):
+    return stencil_array(operators.kp(a.value).output)
+
+def km(a):
+    return stencil_array(operators.km(a.value).output)
 
 # ============================================================================ #
 #                             data transformations                             #
@@ -234,6 +256,7 @@ class builtin:
     ZERO = stencil_array(builtin_values.ZERO)
     I = stencil_array(builtin_values.I)
     J = stencil_array(builtin_values.J)
+    K = stencil_array(builtin_values.K)
 
 def ones(shape=()):
     return builtin.ZERO + np.ones(shape)
@@ -246,57 +269,57 @@ def zeros(shape=()):
 #                                decomposition                                 #
 # ============================================================================ #
 
-def stack_upstream(stage):
-    upstream_total_size = builtins.sum(
-            [v.size for v in stage.upstream_values])
-    stacked_upstream_array = stencil_array((upstream_total_size,))
-    stacked_upstream_value = stacked_upstream_array.value
-    # split stacked upstream array
-    upstream_arrays = []
+def stack_source(stage):
+    source_total_size = builtins.sum(
+            [v.size for v in stage.source_values])
+    stacked_source_array = stencil_array((source_total_size,))
+    stacked_source_value = stacked_source_array.value
+    # split stacked source array
+    source_arrays = []
     i_ptr = 0
-    for v in stage.upstream_values:
-        array_slice = stacked_upstream_array[i_ptr:i_ptr+v.size]
-        upstream_arrays.append(array_slice.reshape(v.shape))
+    for v in stage.source_values:
+        array_slice = stacked_source_array[i_ptr:i_ptr+v.size]
+        source_arrays.append(array_slice.reshape(v.shape))
         i_ptr += v.size
-    # construct stage based on stacked upstream values
+    # construct stage based on stacked source values
     triburary_arrays = [stencil_array(v) for v in stage.triburary_values]
-    downstream_arrays = stage(upstream_arrays, triburary_arrays)
-    downstream_values = [a.value for a in downstream_arrays]
-    return AtomicStage([stacked_upstream_value], downstream_values)
+    sink_arrays = stage(source_arrays, triburary_arrays)
+    sink_values = [a.value for a in sink_arrays]
+    return AtomicStage([stacked_source_value], sink_values)
 
-def stack_downstream(stage):
-    downstream_total_size = builtins.sum(
-            [v.size for v in stage.downstream_values])
-    stacked_downstream_array = zeros((downstream_total_size,))
+def stack_sink(stage):
+    sink_total_size = builtins.sum(
+            [v.size for v in stage.sink_values])
+    stacked_sink_array = zeros((sink_total_size,))
     i_ptr = 0
-    for v in stage.downstream_values:
-        downstream_array_slice = stencil_array(v).reshape((v.size,))
-        stacked_downstream_array[i_ptr:i_ptr+v.size] = downstream_array_slice
+    for v in stage.sink_values:
+        sink_array_slice = stencil_array(v).reshape((v.size,))
+        stacked_sink_array[i_ptr:i_ptr+v.size] = sink_array_slice
         i_ptr += v.size
-    return AtomicStage(stage.upstream_values, [stacked_downstream_array.value])
+    return AtomicStage(stage.source_values, [stacked_sink_array.value])
 
-def decompose_function(func, inputs, verbose=False,
-                       stack_upstream_downstream=True):
+def decompose(func, inputs=stencil_array(), verbose=False,
+              stack_source_sink=True):
     if not isinstance(inputs, (tuple, list)):
         inputs = (inputs,)
     inputs = tuple([stencil_array(inp.shape) for inp in inputs])
-    upstream_values = tuple(inp.value for inp in inputs)
+    source_values = tuple(inp.value for inp in inputs)
     outputs = func(*inputs)
     if not isinstance(outputs, tuple):
         outputs = (outputs,)
-    downstream_values = tuple(out.value for out in outputs)
-    stages = sa2d_decomp_value.decompose(upstream_values,
-                                         downstream_values, verbose)
-    if stack_upstream_downstream:
+    sink_values = tuple(out.value for out in outputs)
+    stages = symbolic_value.decompose(source_values,
+                                         sink_values, verbose)
+    if stack_source_sink:
         for k in range(len(stages) - 1):
-            stages[k] = stack_downstream(stages[k])
+            stages[k] = stack_sink(stages[k])
         for k in range(1, len(stages)):
-            stages[k] = stack_upstream(stages[k])
+            stages[k] = stack_source(stages[k])
     if verbose == 'visualize':
         for k, s in enumerate(stages):
-            sa2d_decomp_value.visualize_graph(
+            symbolic_value.visualize_graph(
                     'decomp_{0}.gv'.format(k),
-                    s.upstream_values, s.downstream_values, False, color=k)
+                    s.source_values, s.sink_values, False, color=k)
     return stages
 
 ################################################################################
