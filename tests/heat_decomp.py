@@ -12,14 +12,14 @@ def heatMidpoint(u):
     uh = u + 0.5 * dt / dx**2 * (im(u) + ip(u) - 2 * u)
     return u + dt / dx**2 * (im(uh) + ip(uh) - 2 * uh)
 
-Ni, Nj, Nk = 8, 1, 1
-u0 = numpy.ones([Ni, Nj, Nk])
+Ni, Nj, Nk = 8, 4, 3
+u0 = numpy.random.random([Ni, Nj, Nk])
 
-G1, G2 = enzyme.decompose(heatMidpoint)
+G1, G2 = enzyme.decompose(heatMidpoint, verbose='visualize')
 
 u1 = enzyme.execute((G1, G2), u0)
 
 im, ip = lambda u : numpy.roll(u,1,0), lambda u : numpy.roll(u,-1,0)
 u2 = heatMidpoint(u0)
 
-assert (u1 == u2).all()
+assert abs(u1 - u2).max() < 1E-6

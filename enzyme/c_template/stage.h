@@ -8,6 +8,8 @@ inline void ${STAGE_NAME}(uint64_t NI, uint64_t NJ, uint64_t NK, Workspace * p)
     const uint64_t NUM_OUTPUTS = ${NUM_OUTPUTS};
     const uint64_t MAX_VARS = ${MAX_VARS};
 
+    workspace_swap_sync(p, NUM_INPUTS);
+
     float * p_source = p->source_workspace;
     float * p_sink = p->sink_workspace;
 
@@ -22,6 +24,4 @@ inline void ${STAGE_NAME}(uint64_t NI, uint64_t NJ, uint64_t NK, Workspace * p)
         float * sink = p_sink + OFFSET(i,j,k,NUM_OUTPUTS);
         ${CODE}
     }
-
-    workspace_swap(p, NUM_OUTPUTS);
 }

@@ -17,18 +17,18 @@ void workspace_init(Workspace * p)
 {
     int64_t n_grid = (NI+2)*(NJ+2)*(NK+2);
     p->workspace = (float *)malloc(sizeof(float)*n_grid*MAX_VARS*2);
-    p->sink_workspace = p->workspace;
-    p->source_workspace = p->workspace + n_grid*MAX_VARS;
+    p->source_workspace = p->workspace;
+    p->sink_workspace = p->workspace + n_grid*MAX_VARS;
     int r = fread(p->workspace, sizeof(float), NI*NJ*NK*NUM_INPUTS, stdin);
 
     FOR_IJK {
         float * src = p->workspace + NUM_INPUTS * (k + j*NK + i*NK*NJ);
-        float * dest = p->source_workspace + OFFSET(i,j,k,NUM_INPUTS);
+        float * dest = p->sink_workspace + OFFSET(i,j,k,NUM_INPUTS);
         memcpy(dest, src, NUM_INPUTS * sizeof(float));
     }
 }
 
-void workspace_swap(Workspace * p, uint64_t n)
+void workspace_swap_sync(Workspace * p, uint64_t n)
 {
     float * sink = p->source_workspace;
     float * src = p->sink_workspace;
@@ -52,12 +52,12 @@ void workspace_swap(Workspace * p, uint64_t n)
 void workspace_finalize(Workspace * p)
 {
     FOR_IJK {
-        float * src = p->source_workspace + OFFSET(i,j,k,NUM_OUTPUTS);
-        float * dest = p->sink_workspace + NUM_OUTPUTS * (k + j*NK + i*NK*NJ);
-        memcpy(dest, src, NUM_INPUTS * sizeof(float));
+        float * src = p->sink_workspace + OFFSET(i,j,k,NUM_OUTPUTS);
+        float * dest = p->source_workspace + NUM_OUTPUTS * (k+j*NK+i*NK*NJ);
+        memcpy(dest, src, NUM_OUTPUTS * sizeof(float));
     }
-    int r = fwrite(p->sink_workspace, sizeof(float),
-                   NI*NJ*NK*NUM_INPUTS, stdout);
+    int r = fwrite(p->source_workspace, sizeof(float),
+                   NI*NJ*NK*NUM_OUTPUTS, stdout);
 }
 
 int main()

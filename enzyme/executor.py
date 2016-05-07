@@ -9,22 +9,26 @@ from c_code import generate_c_code
 _my_path = os.path.dirname(os.path.abspath(__file__))
 
 def execute(stages, x):
+    if callable(stages):
+        stages = (stages,)
     tmp_path = tempfile.mkdtemp(prefix='tmp_c_code', dir=_my_path)
     generate_main_c(tmp_path, stages, x)
     generate_workspace_h(tmp_path)
     generate_stage_h(tmp_path, stages)
     call('gcc --std=c99 -O3 main.c -o main'.split(), cwd=tmp_path)
     in_bytes = np.asarray(x, np.float32, 'C').tobytes()
-    print(len(in_bytes))
     p = Popen('./main', cwd=tmp_path, stdin=PIPE, stdout=PIPE, stderr=PIPE)
     out_bytes, err = p.communicate(in_bytes)
-    assert len(err) == 0
+    #assert len(err) == 0
+    print(err)
     y = np.frombuffer(out_bytes, np.float32)
-    return y.reshape(x.shape[:3] + stages[-1].sink_values[0].shape)
+    y_shape = x.shape[:3] + stages[-1].sink_values[0].shape
+    return np.asarray(y, x.dtype).reshape(y_shape)
 
 def generate_main_c(path, stages, x):
     ni, nj, nk = x.shape[:3]
-    max_vars = max([s.source_values[0].size for s in stages[1:]])
+    max_vars = max(max([s.source_values[0].size for s in stages]),
+                   max([s.sink_values[0].size for s in stages]))
     assert np.prod(x.shape[3:]) == stages[0].source_values[0].size
     num_inputs = stages[0].source_values[0].size
     num_outputs = stages[-1].sink_values[0].size
@@ -51,7 +55,8 @@ def generate_stage_h(path, stages):
         assert len(s.source_values) == len(s.sink_values) == 1
     template = open(os.path.join(_my_path, 'c_template', 'stage.h')).read()
     template = string.Template(template)
-    max_vars = max([s.source_values[0].size for s in stages[1:]])
+    max_vars = max(max([s.source_values[0].size for s in stages]),
+                   max([s.sink_values[0].size for s in stages]))
     for i, s in enumerate(stages):
         stage_name = 'stage_{0}'.format(i)
         code = generate_c_code(s)
