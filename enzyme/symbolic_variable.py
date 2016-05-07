@@ -4,7 +4,6 @@
 #                                                                              #
 ################################################################################
 
-import builtins
 import sys
 
 import numpy as np
@@ -270,8 +269,7 @@ def zeros(shape=()):
 # ============================================================================ #
 
 def stack_source(stage):
-    source_total_size = builtins.sum(
-            [v.size for v in stage.source_values])
+    source_total_size = np.sum([v.size for v in stage.source_values])
     stacked_source_array = stencil_array((source_total_size,))
     stacked_source_value = stacked_source_array.value
     # split stacked source array
@@ -288,8 +286,7 @@ def stack_source(stage):
     return AtomicStage([stacked_source_value], sink_values)
 
 def stack_sink(stage):
-    sink_total_size = builtins.sum(
-            [v.size for v in stage.sink_values])
+    sink_total_size = np.sum([v.size for v in stage.sink_values])
     stacked_sink_array = zeros((sink_total_size,))
     i_ptr = 0
     for v in stage.sink_values:

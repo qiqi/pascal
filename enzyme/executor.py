@@ -1,4 +1,5 @@
 import os
+import time
 import string
 import tempfile
 from subprocess import call, Popen, PIPE
@@ -7,11 +8,14 @@ import numpy as np
 from .c_code import generate_c_code
 
 _my_path = os.path.dirname(os.path.abspath(__file__))
+_tmp_path = os.path.join(_my_path, 'tmp_c_code')
+if not os.path.exists(_tmp_path): os.mkdir(_tmp_path)
 
 def execute(stages, x):
     if callable(stages):
         stages = (stages,)
-    tmp_path = tempfile.mkdtemp(prefix='tmp_c_code', dir=_my_path)
+    prefix = time.strftime('%Y%m%d-%H%M%S-', time.localtime())
+    tmp_path = tempfile.mkdtemp(prefix=prefix, dir=_tmp_path)
     generate_main_c(tmp_path, stages, x)
     generate_workspace_h(tmp_path)
     generate_stage_h(tmp_path, stages)
