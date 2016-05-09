@@ -1,2 +1,2 @@
 ../../bin/quarkflow:	main.c
-	gcc --std=c99 main.c -o $@
+	gcc -Wall --std=c99 -O3 main.c -o $@ -lglpk

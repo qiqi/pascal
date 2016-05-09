@@ -12,5 +12,6 @@ def test_heat_midpoint():
     input_file = os.path.join(my_path, 'heat_midpoint.txt')
     out, err = p.communicate(open(input_file, 'rb').read())
     print(out)
+    print(err)
 
 test_heat_midpoint()
