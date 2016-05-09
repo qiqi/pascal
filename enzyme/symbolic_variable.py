@@ -269,7 +269,7 @@ def zeros(shape=()):
 # ============================================================================ #
 
 def stack_source(stage):
-    source_total_size = np.sum([v.size for v in stage.source_values])
+    source_total_size = np.sum([v.size for v in stage.source_values], dtype=int)
     stacked_source_array = stencil_array((source_total_size,))
     stacked_source_value = stacked_source_array.value
     # split stacked source array
@@ -280,13 +280,12 @@ def stack_source(stage):
         source_arrays.append(array_slice.reshape(v.shape))
         i_ptr += v.size
     # construct stage based on stacked source values
-    triburary_arrays = [stencil_array(v) for v in stage.triburary_values]
-    sink_arrays = stage(source_arrays, triburary_arrays)
+    sink_arrays = stage(source_arrays, stencil_array)
     sink_values = [a.value for a in sink_arrays]
     return AtomicStage([stacked_source_value], sink_values)
 
 def stack_sink(stage):
-    sink_total_size = np.sum([v.size for v in stage.sink_values])
+    sink_total_size = np.sum([v.size for v in stage.sink_values], dtype=int)
     stacked_sink_array = zeros((sink_total_size,))
     i_ptr = 0
     for v in stage.sink_values:

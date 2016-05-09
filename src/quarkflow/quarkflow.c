@@ -103,8 +103,8 @@ void _quarkflow_vertices_assemble(const c_graph_t * g, glp_graph * glp)
         int is_source = g->in_degree[i_vertex] == 0;
         int is_sink = g->out_degree[i_vertex] == 0;
         if (is_source) {
-            _quarkflow_arc_create(glp, 1, c_i, 0, INT_MAX/4, 0);
-            _quarkflow_arc_create(glp, c_i, 1, 0, INT_MAX/4, 0);
+            _quarkflow_arc_create(glp, c_i, 1, 0, INT_MAX/4, +1);
+            _quarkflow_arc_create(glp, 1, c_i, 0, INT_MAX/4, -1);
         }
         if (is_sink) {
             int K = glp->nv;
@@ -164,6 +164,13 @@ void c_graph_quarkflow(c_graph_t * g)
     }
 }
 
+void c_graph_write(c_graph_t * g, FILE * f)
+{
+    for (int i = 0; i < g->num_vertices; ++i) {
+        fprintf(f, "%d %d %d\n", g->cde[i][0], g->cde[i][1], g->cde[i][2]);
+    }
+}
+
 void c_graph_free(c_graph_t * g)
 {
     free(g->edges);
@@ -179,12 +186,6 @@ int main()
     c_graph_t c_graph;
     c_graph_read(&c_graph, stdin);
     c_graph_quarkflow(&c_graph);
-    {
-        c_graph_t * g = &c_graph;
-        for (int i = 0; i < g->num_vertices; ++i) {
-            printf("%d %d %d %d\n", i, g->cde[i][0], g->cde[i][1], g->cde[i][2]);
-        }
-    }
-
+    c_graph_write(&c_graph, stdout);
     c_graph_free(&c_graph);
 }
