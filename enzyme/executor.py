@@ -2,7 +2,7 @@ import os
 import time
 import string
 import tempfile
-from subprocess import call, Popen, PIPE
+from subprocess import check_call, Popen, PIPE
 
 import numpy as np
 from .c_code import generate_c_code
@@ -11,25 +11,36 @@ _my_path = os.path.dirname(os.path.abspath(__file__))
 _tmp_path = os.path.join(_my_path, 'tmp_c_code')
 if not os.path.exists(_tmp_path): os.mkdir(_tmp_path)
 
+def unique_stages(stages):
+    unique_stage_list = []
+    unique_stage_dict = {}
+    stage_indices = []
+    for s in stages:
+        if not s in unique_stage_dict:
+            unique_stage_dict[s] = len(unique_stage_list)
+            unique_stage_list.append(s)
+        stage_indices.append(unique_stage_dict[s])
+    return unique_stage_list, stage_indices
+
 def execute(stages, x):
     if callable(stages):
         stages = (stages,)
+    stages, stage_indices = unique_stages(stages)
     prefix = time.strftime('%Y%m%d-%H%M%S-', time.localtime())
     tmp_path = tempfile.mkdtemp(prefix=prefix, dir=_tmp_path)
-    generate_main_c(tmp_path, stages, x)
+    generate_main_c(tmp_path, stages, stage_indices, x)
     generate_workspace_h(tmp_path)
     generate_stage_h(tmp_path, stages)
-    call('gcc --std=c99 -O3 main.c -lm -o main'.split(), cwd=tmp_path)
+    check_call('gcc --std=c99 -O3 main.c -lm -o main'.split(), cwd=tmp_path)
     in_bytes = np.asarray(x, np.float64, 'C').tobytes()
     p = Popen('./main', cwd=tmp_path, stdin=PIPE, stdout=PIPE, stderr=PIPE)
     out_bytes, err = p.communicate(in_bytes)
-    #assert len(err) == 0
-    print(err)
+    assert len(err.strip()) == 0
     y = np.frombuffer(out_bytes, np.float64)
     y_shape = x.shape[:3] + stages[-1].sink_values[0].shape
     return np.asarray(y, x.dtype).reshape(y_shape)
 
-def generate_main_c(path, stages, x):
+def generate_main_c(path, stages, stage_indices, x):
     ni, nj, nk = x.shape[:3]
     max_vars = max(max([s.source_values[0].size for s in stages]),
                    max([s.sink_values[0].size for s in stages]))
@@ -39,6 +50,7 @@ def generate_main_c(path, stages, x):
 
     names = ['stage_{0}'.format(i) for i in range(len(stages))]
     include = '\n'.join(['#include "{0}.h"'.format(n) for n in names])
+    names = ['stage_{0}'.format(i) for i in stage_indices]
     stages = '\n'.join(['{0}(NI,NJ,NK,&buf);'.format(n) for n in names])
 
     template = open(os.path.join(_my_path, 'c_template', 'main.c')).read()

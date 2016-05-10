@@ -2,7 +2,7 @@
 #include<inttypes.h>
 #include<string.h>
 
-inline void ${STAGE_NAME}(uint64_t NI, uint64_t NJ, uint64_t NK, Workspace * p)
+void ${STAGE_NAME}(uint64_t NI, uint64_t NJ, uint64_t NK, Workspace * p)
 {
     const uint64_t NUM_INPUTS = ${NUM_INPUTS};
     const uint64_t NUM_OUTPUTS = ${NUM_OUTPUTS};
