@@ -20,7 +20,7 @@ def stencil_op(op_name, shift, axis):
         OpBase.__init__(self, op, (a,), access_neighbor=True,
                         shape_keeper=ShapeKeeper, name=op_name)
     def c_code(self, input_var_names, output_var_name):
-        return 'const float * {0} = {1}_{2};\n'.format(
+        return 'const double * {0} = {1}_{2};\n'.format(
                 output_var_name, input_var_names[0], op_name)
     return type(op_name, (OpBase,), {'__init__': __init__, 'c_code': c_code})
 

@@ -38,7 +38,7 @@ class OpBase(object):
                 self.inputs.append(inp)
             else:
                 try:
-                    inp = np.array(inp, np.float32)
+                    inp = np.array(inp, np.float64)
                 except (IndexError, TypeError):
                     pass
                 self.inputs.append(inp)
@@ -47,7 +47,7 @@ class OpBase(object):
         produce_shape_keepers = (lambda a:
             shape_keeper(a.shape)
             if _is_like_sa_value(a)
-            else np.array(a, np.float32)
+            else np.array(a, np.float64)
             )
         shape_keeper_inputs = tuple(map(produce_shape_keepers, self.inputs))
         if shape is None:
@@ -89,7 +89,7 @@ class BinaryOp(OpBase):
         c_name = output_var_name
         ind_a, ind_b, ind_c = binary_op_indices(
                 self.inputs[0], self.inputs[1], self.output)
-        lines = 'float {0}[{1}];\n'.format(c_name, self.output.size)
+        lines = 'double {0}[{1}];\n'.format(c_name, self.output.size)
         for ia, ib, ic in zip(ind_a, ind_b, ind_c):
             lines += '{0}[{1}] = {2}[{3}] {6} {4}[{5}];\n'.format(
                     c_name, ic,
@@ -111,7 +111,7 @@ class BinaryFunction(OpBase):
         c_name = output_var_name
         ind_a, ind_b, ind_c = binary_op_indices(
                 self.inputs[0], self.inputs[1], self.output)
-        lines = 'float {0}[{1}];\n'.format(c_name, self.output.size)
+        lines = 'double {0}[{1}];\n'.format(c_name, self.output.size)
         for ia, ib, ic in zip(ind_a, ind_b, ind_c):
             lines += '{0}[{1}] = {6}({2}[{3}], {4}[{5}]);\n'.format(
                     c_name, ic,
@@ -131,7 +131,7 @@ class UnitaryFunction(OpBase):
     def c_code(self, input_var_names, output_var_name):
         a_name, = input_var_names
         b_name = output_var_name
-        lines = 'float {0}[{1}];\n'.format(b_name, self.output.size)
+        lines = 'double {0}[{1}];\n'.format(b_name, self.output.size)
         for i in np.arange(self.output.size):
             lines += '{0}[{1}] = {4}({2}[{3}]);\n'.format(
                     b_name, i,

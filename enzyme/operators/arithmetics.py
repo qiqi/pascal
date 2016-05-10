@@ -85,7 +85,7 @@ class sum(OpBase):
             shape[self.axis] = 1
             i_out = np.arange(out.size).reshape(shape)
             ind_out += i_out
-        lines = 'float {0}[{1}];\n'.format(output_var_name, out.size)
+        lines = 'double {0}[{1}];\n'.format(output_var_name, out.size)
         for i in range(out.size):
             lines += '{0}[{1}] = 0.0;\n'.format(output_var_name, i)
         for i_inp, i_out in enumerate(np.ravel(ind_out)):

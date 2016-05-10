@@ -16,7 +16,7 @@ class transpose(OpBase):
         inp, out = self.inputs[0], self.output
         ind_inp = np.arange(inp.size).reshape(inp.shape)
         ind_out = ind_inp.transpose(self.axes)
-        lines = 'float {0}[{1}];\n'.format(output_var_name, out.size)
+        lines = 'double {0}[{1}];\n'.format(output_var_name, out.size)
         for i_in, i_out in zip(np.ravel(ind_inp), np.ravel(ind_out)):
             lines += '{0}[{1}] = {2}[{3}];\n'.format(
                     output_var_name, i_out, input_var_names[0], i_in)
@@ -33,7 +33,7 @@ class reshape(OpBase):
         inp, out = self.inputs[0], self.output
         ind_inp = np.arange(inp.size).reshape(inp.shape)
         ind_out = ind_inp.reshape(self.shape)
-        lines = 'float {0}[{1}];\n'.format(output_var_name, out.size)
+        lines = 'double {0}[{1}];\n'.format(output_var_name, out.size)
         for i_in, i_out in zip(np.ravel(ind_inp), np.ravel(ind_out)):
             lines += '{0}[{1}] = {2}[{3}];\n'.format(
                     output_var_name, i_out, input_var_names[0], i_in)
@@ -51,7 +51,7 @@ class roll(OpBase):
         inp, out = self.inputs[0], self.output
         ind_inp = np.arange(inp.size).reshape(inp.shape)
         ind_out = np.roll(ind_inp, self.shift, self.axis)
-        lines = 'float {0}[{1}];\n'.format(output_var_name, out.size)
+        lines = 'double {0}[{1}];\n'.format(output_var_name, out.size)
         for i_in, i_out in zip(np.ravel(ind_inp), np.ravel(ind_out)):
             lines += '{0}[{1}] = {2}[{3}];\n'.format(
                     output_var_name, i_out, input_var_names[0], i_in)

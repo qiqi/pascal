@@ -19,13 +19,13 @@ def execute(stages, x):
     generate_main_c(tmp_path, stages, x)
     generate_workspace_h(tmp_path)
     generate_stage_h(tmp_path, stages)
-    call('gcc --std=c99 -O3 main.c -o main'.split(), cwd=tmp_path)
-    in_bytes = np.asarray(x, np.float32, 'C').tobytes()
+    call('gcc --std=c99 -O3 main.c -lm -o main'.split(), cwd=tmp_path)
+    in_bytes = np.asarray(x, np.float64, 'C').tobytes()
     p = Popen('./main', cwd=tmp_path, stdin=PIPE, stdout=PIPE, stderr=PIPE)
     out_bytes, err = p.communicate(in_bytes)
     #assert len(err) == 0
     print(err)
-    y = np.frombuffer(out_bytes, np.float32)
+    y = np.frombuffer(out_bytes, np.float64)
     y_shape = x.shape[:3] + stages[-1].sink_values[0].shape
     return np.asarray(y, x.dtype).reshape(y_shape)
 

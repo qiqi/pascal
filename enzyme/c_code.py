@@ -12,7 +12,7 @@ def name_generator():
 
 def define_constant(v, name):
     v = np.ravel(np.array(v, float));
-    c_code = 'float {0}[{1}];\n'.format(name, v.size);
+    c_code = 'double {0}[{1}];\n'.format(name, v.size);
     for i in range(v.size):
         c_code += '{0}[{1}] = {2};\n'.format(name, i, v[i])
     return c_code
@@ -56,25 +56,25 @@ def initialize_default_values(values):
     for v in values:
         if v is builtin.ZERO.value:
             for suffix in ['', '_ip', '_im', '_jp', '_jm', '_km', '_kp']:
-                c_code += 'const float {0}{1}[1] = {{0.0f}};\n'.format(
+                c_code += 'const double {0}{1}[1] = {{0.0f}};\n'.format(
                                        v._name, suffix)
         elif v is builtin.I.value:
             for suffix, shift in zip(['','_ip','_im','_jp','_jm','_km','_kp'],
                                      [0,   +1,   -1,   0,     0,    0,    0]):
-                c_code += ('const float {0}{1}[1] = ' +
-                           '{{(float)(i+({2}))}};\n').format(
+                c_code += ('const double {0}{1}[1] = ' +
+                           '{{(double)(i+({2}))}};\n').format(
                                        v._name, suffix, shift)
         elif v is builtin.J.value:
             for suffix, shift in zip(['','_ip','_im','_jp','_jm','_km','_kp'],
                                      [0,   0,     0,   +1,   -1,    0,    0]):
-                c_code += ('const float {0}{1}[1] = ' +
-                           '{{(float)(j+({2}))}};\n').format(
+                c_code += ('const double {0}{1}[1] = ' +
+                           '{{(double)(j+({2}))}};\n').format(
                                        v._name, suffix, shift)
         elif v is builtin.K.value:
             for suffix, shift in zip(['','_ip','_im','_jp','_jm','_km','_kp'],
                                      [0,    0,    0,    0,    0,   -1,   +1]):
-                c_code += ('const float {0}{1}[1] = ' +
-                           '{{(float)(k+({2}))}};\n').format(
+                c_code += ('const double {0}{1}[1] = ' +
+                           '{{(double)(k+({2}))}};\n').format(
                                        v._name, suffix, shift)
     return c_code + '\n'
 

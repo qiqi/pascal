@@ -14,7 +14,7 @@ class getitem(OpBase):
 
     def c_code(self, input_var_names, output_var_name):
         a, a_i = self.inputs[0], self.output
-        lines = 'float {0}[{1}];\n'.format(output_var_name, a_i.size)
+        lines = 'double {0}[{1}];\n'.format(output_var_name, a_i.size)
         ind = np.ravel(np.arange(a.size).reshape(a.shape)[self.ind])
         for i_out, i_in in enumerate(ind):
             lines += '{0}[{1}] = {2}[{3}];\n'.format(
@@ -33,7 +33,7 @@ class setitem(OpBase):
 
     def c_code(self, input_var_names, output_var_name):
         inp, out = self.inputs[1], self.output
-        lines = 'float {0}[{1}];\n'.format(output_var_name, out.size)
+        lines = 'double {0}[{1}];\n'.format(output_var_name, out.size)
         for i in range(out.size):
             lines += '{1}[{0}] = {2}[{0}];\n'.format(
                     i, output_var_name, input_var_names[0])

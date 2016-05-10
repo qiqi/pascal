@@ -14,7 +14,9 @@ from .symbolic_value import _is_like_sa_value, stencil_array_value
 from .symbolic_value import builtin as builtin_values
 from .symbolic_value import AtomicStage
 
-__all__ = ['decompose', 'im', 'ip', 'km', 'kp', 'jm', 'jp', 'builtin']
+__all__ = ['stencil_array', 'decompose', 'im', 'ip', 'km', 'kp', 'jm', 'jp',
+           'transpose', 'reshape', 'roll', 'copy', 'sin', 'cos', 'exp',
+           'sum', 'mean', 'builtin', 'ones', 'zeros']
 
 # ============================================================================ #
 
@@ -37,6 +39,8 @@ class stencil_array(object):
             self.value = init
         else:
             shape = init
+            if isinstance(shape, int):
+                shape = (shape,)
             self.value = stencil_array_value(shape)
 
     def __repr__(self):
@@ -268,7 +272,7 @@ def zeros(shape=()):
 #                                decomposition                                 #
 # ============================================================================ #
 
-def stack_source(stage):
+def _stack_source(stage):
     source_total_size = np.sum([v.size for v in stage.source_values], dtype=int)
     stacked_source_array = stencil_array((source_total_size,))
     stacked_source_value = stacked_source_array.value
@@ -284,7 +288,7 @@ def stack_source(stage):
     sink_values = [a.value for a in sink_arrays]
     return AtomicStage([stacked_source_value], sink_values)
 
-def stack_sink(stage):
+def _stack_sink(stage):
     sink_total_size = np.sum([v.size for v in stage.sink_values], dtype=int)
     stacked_sink_array = zeros((sink_total_size,))
     i_ptr = 0
@@ -308,9 +312,9 @@ def decompose(func, inputs=stencil_array(), verbose=False,
                                          sink_values, verbose)
     if stack_source_sink:
         for k in range(len(stages) - 1):
-            stages[k] = stack_sink(stages[k])
+            stages[k] = _stack_sink(stages[k])
         for k in range(1, len(stages)):
-            stages[k] = stack_source(stages[k])
+            stages[k] = _stack_source(stages[k])
     if verbose == 'visualize':
         for k, s in enumerate(stages):
             symbolic_value.visualize_graph(

@@ -2,9 +2,9 @@
 #define C_TEMPLATE_COMMON_H
 
 typedef struct {
-    float * workspace;
-    float * source_workspace;
-    float * sink_workspace;
+    double * workspace;
+    double * source_workspace;
+    double * sink_workspace;
 } Workspace;
 
 void workspace_init(Workspace * p);
