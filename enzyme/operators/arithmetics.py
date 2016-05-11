@@ -78,7 +78,7 @@ class sum(OpBase):
                         (a,), name='sum')
 
     def c_code(self, input_var_names, output_var_name):
-        inp, out = self.inputs[1], self.output
+        inp, out = self.inputs[0], self.output
         ind_out = np.zeros(inp.shape, int)
         if self.axis is not None:
             shape = list(inp.shape)
@@ -90,6 +90,6 @@ class sum(OpBase):
             lines += '{0}[{1}] = 0.0;\n'.format(output_var_name, i)
         for i_inp, i_out in enumerate(np.ravel(ind_out)):
             lines += '{0}[{1}] += {2}[{3}];\n'.format(
-                    output_var_name, i_out, input_var_names[1], i_inp)
+                    output_var_name, i_out, input_var_names[0], i_inp)
         return lines
 

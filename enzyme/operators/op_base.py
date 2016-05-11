@@ -44,11 +44,11 @@ class OpBase(object):
                 self.inputs.append(inp)
         self.name = name
 
-        produce_shape_keepers = (lambda a:
-            shape_keeper(a.shape)
-            if _is_like_sa_value(a)
-            else np.array(a, np.float64)
-            )
+        def produce_shape_keepers(a):
+            if _is_like_sa_value(a):
+                return shape_keeper(a.shape)
+            else:
+                return np.array(a, np.float64)
         shape_keeper_inputs = tuple(map(produce_shape_keepers, self.inputs))
         if shape is None:
             shape = py_operation(*shape_keeper_inputs).shape
@@ -59,9 +59,6 @@ class OpBase(object):
     def perform(self, input_objects):
         assert len(input_objects) == len(self.inputs)
         return self.py_operation(*input_objects)
-
-    def c_code(self, input_var_names, output_var_name):
-        raise NotImplementedError("Override c_code")
 
     def __repr__(self):
         return 'Operator {0}'.format(self.name)

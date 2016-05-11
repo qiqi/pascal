@@ -27,3 +27,7 @@ def test_heat_midpoint():
     km, kp = lambda u : np.roll(u,1,2), lambda u : np.roll(u,-1,2)
     u2 = heat_midpoint(u0)
     assert abs(u1 - u2).max() < 1E-10
+
+    u_mid = enzyme.execute(G1, u0)
+    u3 = enzyme.execute(G2, u_mid)
+    assert abs(u1 - u3).max() < 1E-10
