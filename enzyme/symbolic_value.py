@@ -13,9 +13,6 @@ from subprocess import Popen, PIPE
 from io import BytesIO
 
 import numpy as np
-import pulp
-import graphviz
-
 
 def _is_like_sa_value(a):
     '''
