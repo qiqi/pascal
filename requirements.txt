@@ -3,3 +3,4 @@ PuLP >= 1.6
 graphviz >= 0.4
 pytest
 pytest-cov
+graphviz
