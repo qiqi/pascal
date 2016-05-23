@@ -4,4 +4,4 @@ default:	../../bin/quarkflow
 	gcc -Wall --std=c99 -O3 $^ -o $@ -lglpk
 
 %.o:	%.c compgraph.h
-	gcc -Wall --std=c99 -O3 $<
+	gcc -Wall --std=c99 -O3 -c $<
