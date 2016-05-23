@@ -41,7 +41,6 @@ def test_heat_midpoint():
 
     assert os.path.exists(vis_bin)
     assert os.path.exists(graph_outfile)
-    subprocess.call([vis_bin, graph_outfile, dot_outfile])
-    time.sleep(0.1)
+    subprocess.call([sys.executable, vis_bin, graph_outfile, dot_outfile])
     assert os.path.exists(dot_outfile)
     assert os.path.exists(dot_outfile + '.pdf')
