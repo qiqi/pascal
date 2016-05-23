@@ -3,3 +3,6 @@ default:	bin
 
 bin:
 	mkdir bin
+
+clean:
+	rm bin/quarkflow
