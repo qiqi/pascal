@@ -25,5 +25,5 @@ def test_manufactured():
     c, d, e = np.loadtxt(BytesIO(out), int).T
     assert len(err.strip()) == 0
     assert c.min() == 1 and c.max() == 3
-    assert (d != c).sum() == 2
+    assert (d != c).sum() == 3
     assert d[2] != c[2] and d[4] != c[4]

@@ -298,8 +298,8 @@ def _stack_sink(stage):
         i_ptr += v.size
     return AtomicStage(stage.source_values, [stacked_sink_array.value])
 
-def decompose(func, inputs=stencil_array(), verbose=False,
-              stack_source_sink=True):
+def decompose(func, inputs=stencil_array(), stack_source_sink=True,
+              comp_graph_output_file=None):
     if not isinstance(inputs, (tuple, list)):
         inputs = (inputs,)
     inputs = tuple([stencil_array(inp.shape) for inp in inputs])
@@ -308,18 +308,13 @@ def decompose(func, inputs=stencil_array(), verbose=False,
     if not isinstance(outputs, tuple):
         outputs = (outputs,)
     sink_values = tuple(out.value for out in outputs)
-    stages = symbolic_value.decompose(source_values,
-                                         sink_values, verbose)
+    stages = symbolic_value.decompose(source_values, sink_values,
+                                      comp_graph_output_file)
     if stack_source_sink:
         for k in range(len(stages) - 1):
             stages[k] = _stack_sink(stages[k])
         for k in range(1, len(stages)):
             stages[k] = _stack_source(stages[k])
-    if verbose == 'visualize':
-        for k, s in enumerate(stages):
-            symbolic_value.visualize_graph(
-                    'decomp_{0}.gv'.format(k),
-                    s.source_values, s.sink_values, False, color=k)
     return stages
 
 ################################################################################

@@ -4,65 +4,25 @@
 #include<stdio.h>
 #include<glpk.h>
 
+#include"compgraph.h"
+
+// structured needed by GLPK
 typedef struct { double rhs, pi; } v_data;
 typedef struct { double low, cap, cost, x; } a_data;
 
 #define node(v) ((v_data *)((v)->data))
 #define arc(a) ((a_data *)((a)->data))
 
-typedef struct {
-    int num_vertices, num_edges;
-    int * weights;
-    int (*edges)[3];
-    int * swept_in_degree, * in_degree, * out_degree;
-    int (*cde)[3];
-} c_graph_t;
-
-void c_graph_analyze(c_graph_t * g);
-
-void check_result(int ret, int expected) {
-    if (ret != expected) {
-        fprintf(stderr, "expected to read %d integers, but found %d\n",
-                expected, ret);
-        exit(-1);
-    }
-}
-
-void c_graph_read(c_graph_t * g, FILE * f)
+void comp_graph_analyze(comp_graph_t * g)
 {
-    check_result(fscanf(f, "%d %d", &g->num_vertices, &g->num_edges), 2);
-    g->weights = (int*)
-        malloc(sizeof(int) * (g->num_vertices + 1));
-    for (int i = 0; i <= g->num_vertices; ++i)
-    {
-        check_result(fscanf(f, "%d", &g->weights[i]), 1);
-    }
-    g->edges = (int(*)[3])
-        malloc(sizeof(int) * 3 * g->num_edges);
-    for (int i = 0; i < g->num_edges; ++i)
-    {
-        check_result(fscanf(f, "%d %d %d", &g->edges[i][0],
-                                           &g->edges[i][1],
-                                           &g->edges[i][2]), 3);
-    }
-    c_graph_analyze(g);
-}
-
-void c_graph_analyze(c_graph_t * g)
-{
-    g->swept_in_degree = (int*) calloc(g->num_vertices, sizeof(int));
-    g->in_degree = (int*) calloc(g->num_vertices, sizeof(int));
-    g->out_degree = (int*) calloc(g->num_vertices, sizeof(int));
-
     for (int i = 0; i < g->num_edges; ++i) {
-        int from_node = g->edges[i][0];
-        int to_node = g->edges[i][1];
-        int is_swept = g->edges[i][2];
-        assert(from_node < g->num_vertices && to_node < g->num_vertices);
-        assert(is_swept == 0 || is_swept == 1);
-        g->out_degree[from_node] += 1;
-        g->in_degree[to_node] += 1;
-        g->swept_in_degree[to_node] += is_swept;
+        comp_graph_edge_t * e = &g->edges[i];
+        assert(e->from_node < g->num_vertices);
+        assert(e->to_node < g->num_vertices);
+        assert(e->is_swept == 0 || e->is_swept == 1);
+        g->out_degree[e->from_node] += 1;
+        g->in_degree[e->to_node] += 1;
+        g->swept_in_degree[e->to_node] += e->is_swept;
     }
 }
 
@@ -81,10 +41,10 @@ glp_arc * _quarkflow_arc_create(glp_graph * glp, int i0, int i1,
     return a;
 }
 
-void _quarkflow_vertices_assemble(const c_graph_t * g, glp_graph * glp)
+void _quarkflow_vertices_assemble(const comp_graph_t * g, glp_graph * glp)
 {
     glp_add_vertices(glp, 3 * g->num_vertices + 2);
-    int w_K = g->weights[g->num_vertices];
+    int w_K = g->cutting_cost[g->num_vertices];
     glp_vertex * v_0 = glp->v[1];
     glp_vertex * v_K = glp->v[glp->nv];
     _quarkflow_vertex_assign(v_0, -0*w_K);
@@ -97,8 +57,8 @@ void _quarkflow_vertices_assemble(const c_graph_t * g, glp_graph * glp)
         glp_vertex * v_c = glp->v[c_i];
         glp_vertex * v_d = glp->v[d_i];
         glp_vertex * v_e = glp->v[e_i];
-        _quarkflow_vertex_assign(v_c, +g->weights[i_vertex]);
-        _quarkflow_vertex_assign(v_d, -g->weights[i_vertex]);
+        _quarkflow_vertex_assign(v_c, +g->cutting_cost[i_vertex]);
+        _quarkflow_vertex_assign(v_d, -g->cutting_cost[i_vertex]);
         _quarkflow_vertex_assign(v_e, 0);
         int is_source = g->in_degree[i_vertex] == 0;
         int is_sink = g->out_degree[i_vertex] == 0;
@@ -120,26 +80,26 @@ void _quarkflow_vertices_assemble(const c_graph_t * g, glp_graph * glp)
     }
 }
 
-void _quarkflow_edges_assemble(const c_graph_t * g, glp_graph * glp)
+void _quarkflow_edges_assemble(const comp_graph_t * g, glp_graph * glp)
 {
     for (int i_edge = 0; i_edge < g->num_edges; ++i_edge) {
-        int i_vertex = g->edges[i_edge][0];
-        int j_vertex = g->edges[i_edge][1];
-        int is_swept = g->edges[i_edge][2];
-        int c_i = i_vertex*3+2;
-        int d_i = i_vertex*3+3;
-        int e_i = i_vertex*3+4;
-        int c_j = j_vertex*3+2;
-        int e_j = j_vertex*3+4;
-        const int ee_cost = -is_swept;
+        comp_graph_edge_t * e = &g->edges[i_edge];
+        int c_i = e->from_node*3+2;
+        int d_i = e->from_node*3+3;
+        int e_i = e->from_node*3+4;
+        int c_j = e->to_node*3+2;
+        int e_j = e->to_node*3+4;
+        const int ee_cost = -e->is_swept;
         _quarkflow_arc_create(glp, c_i, c_j, 0, INT_MAX/4, 0);
         _quarkflow_arc_create(glp, c_j, d_i, 0, INT_MAX/4, 0);
         _quarkflow_arc_create(glp, e_i, e_j, 0, INT_MAX/4, ee_cost);
     }
 }
 
-void c_graph_quarkflow(c_graph_t * g)
+void comp_graph_quarkflow(comp_graph_t * g)
 {
+    comp_graph_analyze(g);
+
     glp_graph * glp = glp_create_graph(sizeof(double)*2, sizeof(double)*4);
     _quarkflow_vertices_assemble(g, glp);
     _quarkflow_edges_assemble(g, glp);
@@ -152,7 +112,6 @@ void c_graph_quarkflow(c_graph_t * g)
         fprintf(stderr, "glp_mincost_okalg ret_code = %d\n", ret_code);
         exit(-1);
     }
-    g->cde = (int(*)[3]) malloc(sizeof(int) * g->num_vertices * 3);
     int base_potential = (int)node(glp->v[1])->pi;
     for (int i_vertex = 0; i_vertex < g->num_vertices; ++i_vertex) {
         int c_i = i_vertex*3+2;
@@ -164,28 +123,11 @@ void c_graph_quarkflow(c_graph_t * g)
     }
 }
 
-void c_graph_write(c_graph_t * g, FILE * f)
-{
-    for (int i = 0; i < g->num_vertices; ++i) {
-        fprintf(f, "%d %d %d\n", g->cde[i][0], g->cde[i][1], g->cde[i][2]);
-    }
-}
-
-void c_graph_free(c_graph_t * g)
-{
-    free(g->edges);
-    free(g->weights);
-    free(g->swept_in_degree);
-    free(g->in_degree);
-    free(g->out_degree);
-    free(g->cde);
-}
-
 int main()
 {
-    c_graph_t c_graph;
-    c_graph_read(&c_graph, stdin);
-    c_graph_quarkflow(&c_graph);
-    c_graph_write(&c_graph, stdout);
-    c_graph_free(&c_graph);
+    comp_graph_t comp_graph;
+    comp_graph_read(&comp_graph, stdin);
+    comp_graph_quarkflow(&comp_graph);
+    comp_graph_write_quarkflow(&comp_graph, stdout);
+    comp_graph_free(&comp_graph);
 }

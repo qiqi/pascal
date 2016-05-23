@@ -164,7 +164,7 @@ def build_graph(all_values):
         del v._value_id
     return np.array(weights, int), np.array(edges, int)
 
-def decompose_graph(weights, edges):
+def decompose_graph(weights, edges, comp_graph_output_file=None):
     my_path = os.path.dirname(os.path.abspath(__file__))
     bin_path = os.path.abspath(os.path.join(my_path, '..', 'bin'))
     quarkflow_bin = os.path.join(bin_path, 'quarkflow')
@@ -173,15 +173,17 @@ def decompose_graph(weights, edges):
     weights = ['{0}'.format(w) for w in weights]
     edges = ['{0} {1} {2}'.format(i, j, s) for i, j, s in edges]
     inp = '\n'.join([first_line] + weights + edges)
+    if comp_graph_output_file:
+        open(comp_graph_output_file, 'w').write(inp)
     out, err = p.communicate(inp.encode())
     assert len(err.strip()) == 0
     return np.loadtxt(BytesIO(out), int).T
 
-def decompose(source_values, sink_values, verbose=True):
+def decompose(source_values, sink_values, comp_graph_output_file=None):
     values, _ = discover_values(source_values, sink_values)
     all_values = list(values) + list(source_values)
     weights, edges = build_graph(all_values)
-    c, d, e = decompose_graph(weights, edges)
+    c, d, e = decompose_graph(weights, edges, comp_graph_output_file)
     num_stages = d.max()
     for i, v in enumerate(all_values):
         v.create_stage = c[i]

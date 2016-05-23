@@ -1,0 +1,58 @@
+#!/usr/bin/python
+import os
+import sys
+my_path = os.path.dirname(os.path.abspath(__file__))
+
+import io
+import argparse
+import subprocess
+import numpy as np
+import graphviz
+
+def ints_from_bytes(s):
+    return np.loadtxt(io.StringIO(s.decode().strip()), dtype=int)
+
+quarkflow_bin = os.path.join(my_path, 'quarkflow')
+if not os.path.exists(quarkflow_bin):
+    print('{0} does not exist. Build it first.'.format(quarkflow_bin))
+    sys.exit(0)
+
+parser = argparse.ArgumentParser()
+parser.add_argument("inputfile")
+parser.add_argument("outputfile")
+args = parser.parse_args()
+
+lines = open(args.inputfile).readlines()
+nnodes, nedges = ints_from_bytes(lines[0])
+cutting_cost = ints_from_bytes('\n'.join(lines[1:nnodes+2]))
+edges = ints_from_bytes('\n'.join(lines[nnodes+2:nnodes+2+nedges]))
+
+p = subprocess.Popen(quarkflow_bin, stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+out, err = p.communicate(open(args.inputfile, 'rb').read())
+assert not err
+quarks = ints_from_bytes(out)
+
+dot = graphviz.Digraph(graph_attr={'rankdir': 'LR'})
+for i in range(nnodes):
+    c, d, e = quarks[i]
+    argv = {}
+    if d > c:
+        argv['shape'] = 'doublecircle'
+    else:
+        argv['shape'] = 'circle'
+    argv['label'] = r'<{1}<SUB>{0}</SUB>>'.format(cutting_cost[i], i)
+    dot.node(str(i), **argv)
+
+for i, j, s in edges:
+    c, d, e = quarks[j]
+    argv = {'arrowhead': 'vee', 'penwidth': '3'}
+    argv['colorscheme'] = 'set19'
+    argv['color'] = str(c + 1)
+    #    argv['color'] = 'black'
+    if s:
+        argv['color'] = '{0}:white:{0}:white:{0}'.format(argv['color'])
+    dot.edge(str(i), str(j), **argv)
+
+dot.render(args.outputfile)

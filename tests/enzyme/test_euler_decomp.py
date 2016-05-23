@@ -1,12 +1,17 @@
 import os
 import sys
+import subprocess
 my_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(my_path, '..', '..'))
+
+# vis_bin = os.path.join(my_path, '../../bin/quarkflowvis')
+# graph_outfile = os.path.join(my_path, 'euler_rk4.comp_graph')
+# dot_outfile = os.path.join(my_path, 'euler_rk4.dot')
 
 import numpy as np
 import enzyme
 
-def test_heat_midpoint():
+def test_euler_rk4():
     DISS_COEFF = 0.0025
     gamma, R = 1.4, 287.
     T0, p0, M0 = 300., 101325., 0.25
@@ -113,7 +118,8 @@ def test_heat_midpoint():
         return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
     w0 = np.random.random([Ni, Nj, Nk, 5])
-    stages = enzyme.decompose(step, enzyme.stencil_array(5))
+    stages = enzyme.decompose(step, enzyme.stencil_array(5),
+                              comp_graph_output_file=None)
     w1 = enzyme.execute(stages, w0)
 
     I, J, K = np.meshgrid(range(Ni), range(Nj), range(Nk), indexing='ij')
@@ -148,3 +154,9 @@ def test_heat_midpoint():
 
     w2 = step(w0)
     assert abs(w1 - w2).max() < 1E-6
+
+    # assert os.path.exists(vis_bin)
+    # assert os.path.exists(graph_outfile)
+    # subprocess.call([vis_bin, graph_outfile, dot_outfile])
+    # assert os.path.exists(dot_outfile)
+    # assert os.path.exists(dot_outfile + '.pdf')

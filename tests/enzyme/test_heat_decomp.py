@@ -1,7 +1,12 @@
 import os
 import sys
+import subprocess
 my_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(my_path, '..', '..'))
+
+vis_bin = os.path.join(my_path, '../../bin/quarkflowvis')
+graph_outfile = os.path.join(my_path, 'heat_midpoint.comp_graph')
+dot_outfile = os.path.join(my_path, 'heat_midpoint.dot')
 
 import numpy as np
 import enzyme
@@ -20,7 +25,8 @@ def test_heat_midpoint():
                                  km(uh) + kp(uh) - 2 * uh)
     Ni, Nj, Nk = 8, 4, 3
     u0 = np.random.random([Ni, Nj, Nk])
-    G1, G2 = enzyme.decompose(heat_midpoint)
+    G1, G2 = enzyme.decompose(
+            heat_midpoint, comp_graph_output_file=graph_outfile)
     u1 = enzyme.execute((G1, G2), u0)
     im, ip = lambda u : np.roll(u,1,0), lambda u : np.roll(u,-1,0)
     jm, jp = lambda u : np.roll(u,1,1), lambda u : np.roll(u,-1,1)
@@ -31,3 +37,9 @@ def test_heat_midpoint():
     u_mid = enzyme.execute(G1, u0)
     u3 = enzyme.execute(G2, u_mid)
     assert abs(u1 - u3).max() < 1E-10
+
+    assert os.path.exists(vis_bin)
+    assert os.path.exists(graph_outfile)
+    subprocess.call([vis_bin, graph_outfile, dot_outfile])
+    assert os.path.exists(dot_outfile)
+    assert os.path.exists(dot_outfile + '.pdf')
