@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import subprocess
 my_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(my_path, '..', '..'))
@@ -41,5 +42,6 @@ def test_heat_midpoint():
     assert os.path.exists(vis_bin)
     assert os.path.exists(graph_outfile)
     subprocess.call([vis_bin, graph_outfile, dot_outfile])
+    time.sleep(0.1)
     assert os.path.exists(dot_outfile)
     assert os.path.exists(dot_outfile + '.pdf')
