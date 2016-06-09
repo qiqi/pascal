@@ -1,0 +1,1205 @@
+\documentclass[review]{siamart0216}
+\usepackage{color,amsmath,amssymb}
+\usepackage{graphicx, subfig}
+\usepackage[procnames]{listings}
+
+\title{Decomposition of stencil update formula into atomic stages}
+\author{Qiqi Wang}
+
+\definecolor{keywords}{rgb}{0.6,0.4,0.0}
+\definecolor{comments}{rgb}{0,0,0.4}
+\definecolor{red}{rgb}{0.5,0,0}
+\definecolor{green}{rgb}{0,0.4,0}
+\definecolor{lightgray}{rgb}{0.9,0.9,0.9}
+\lstset{language=Python, 
+        backgroundcolor=\color{lightgray},
+        basicstyle=\ttfamily\scriptsize, 
+        keywordstyle=\color{keywords},
+        commentstyle=\color{comments},
+        stringstyle=\color{red},
+        showstringspaces=false,
+        identifierstyle=\color{green}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+    In parallel solution of partial differential equations,
+    a complex stencil update formula
+    that accesses multiple layers of neighboring grid points
+    sometimes must be decomposed into atomic stages, ones that accesses
+    only immediately neighboring grid points.
+    This paper shows that an optimal decomposition can be computed by
+    solving the dual of a minimum-cost network flow problem.
+\end{abstract}
+
+% REQUIRED
+\begin{keywords}
+  stencil computation, partial differential equation, parallel computing,
+  computational graph, combinatorial optimization, minimum cost network flow
+\end{keywords}
+
+% REQUIRED
+\begin{AMS}
+  65M06, 68W10, 90C35, 90C90
+\end{AMS}
+
+\section{Introduction}
+
+% This paper describes a technology that can make High Performance
+% Computing (HPC) on general-purpose cloud, e.g., Amazon EC2 or Google Compute
+% Engine, competitive to dedicated supercomputers with Infiniband interconnect.
+% Over the last 5 years, over 100 billion dollars are spent on purchasing and
+% upgrading High Performance Computing (HPC) systems.
+% Within these 100 billion dollars, 20 billion are spent on
+% supercomputers, meaning machines that cost over \$500,000
+% and that typically have advanced features for scaling out workloads\footnote{
+% https://www.dropbox.com/s/dbc1pa3aty5jh8k/HPC\%20Budgets\%20presentation.pdf}.
+% A significant portion of HPC systems, particularly supercomputers, are
+% used for 3D modeling and simulation\footnote{
+% Osseyran, Anwar, and Merle Giles, eds. Industrial Applications of
+% High-Performance Computing: Best Global Practices. Vol. 25. CRC Press, 2015.}.
+
+In large-scale solution of partial differential equations,
+there is a need use novel algorithms to better exploit the
+computational power of massively parallel systems\cite{dongarra2014applied,
+pi2013cfd, larsson2014prospect}.
+These systems include the current tier of leading petascale machines
+\cite{bader2007petascale}, the
+upcoming exascale supercomputers\cite{dongarra2011international,
+amarasinghe2009exascale, shalf2010exascale},
+and virtual supercomputers in the cloud\cite{jackson2010performance,
+yelick2011magellan, saini2012application}.
+New algorithms need to hide network and memory latency\cite{
+chen1992reducing,wonnacott2000using, ghysels2013hiding, strumpen1994exploiting,
+datta2009optimization},
+increase computation-to-communication ratios\cite{rostrup2010parallel,
+crovella1992using, barney2010introduction, boyd1995modeling},
+minimize synchronization\cite{demmel2008avoiding, hoemmen2010communication,
+carson2013avoiding}, be fault-tolerant\cite{cappello2009toward, shah2004highly,
+kanellakis2013fault},
+and with the advent of heterogeneous computer nodes,
+leverage the strengths of these architectures\cite{keckler2011gpus,
+danalis2010scalable, nickolls2010gpu, daga2011efficacy, mudalige2013design}.
+
+Designing and deploying new algorithms is challenging, partly due to
+the variety of schemes commonly used for solving partial differential
+equations.  A novel algorithm may have been demonstrated on a simple scheme 
+with a compact stencil, but to support complex discretization scheme
+involving arbitrary stencil is challenging and cumbersome.  Because
+of this, it would be useful to decompose complex discretization schemes
+into components that are easier to integrate into novel algorithms.
+
+For example, the swept rule\cite{alhubail2016swept} is a novel algorithm
+designed to break the latency barrier of parallel computing by minimizing
+synchronization.  The algorithm has been demonstrated on ``atomic''
+stencil update formulas, i.e., ones with compact stencils, involving only
+the immediate neighbor in a mesh.  Although it was suggested that a more
+complex formula can be decomposed into a series of atomic update formulas,
+it is not obvious how to effectively do so in general.
+An algorithmic approach to performing such decomposition is desirable.
+
+This paper describes an algorithm that decomposes a general update formula
+into an optimal series of atomic update formulas.
+Application of this process makes it possible to apply the swept rule to
+complex update formulas currently used in three-dimensional modeling and
+simulation.  This algorithm facilitates application of the swept rule, and
+can help application of other novel scalable algorithms.
+
+\section{Stencil update formula and atomic decomposition}
+When performing a variety of physical simulations, we discretize space
+into grid points, and time into time steps.  The resulting discretized
+equation often updates a few values in each grid point every time step,
+following a predetermined stencil update formula.
+For example, conduction of heat in
+materials, often modeled by the heat equation
+\begin{equation}
+\frac{\partial u}{\partial t} = \frac{\partial^2 u}{\partial x^2},
+\end{equation}
+can be simulated with the update formula
+\begin{equation} \label{update00}
+u_i^{n+1} = u_i^n + \Delta t \frac{u_{i-1}^n - 2 u_i^n + u_{i+1}^n}{\Delta x^2},
+\end{equation}
+where subscript $i$ denotes spatial grid point, and superscript $n$ denotes time step.  The set of neighboring grid points involved, $\{i-1, i, i+1\}$, is called the stencil of this update formula.
+This update formula is derived through manipulation of Taylor series,
+formally by approximating the spatial derivative with a linear combination
+of neighboring values, a technique known as finite difference,
+in conjunction with a time advancing method called forward Euler.
+
+To automate the manipulation of these update formulas, it is useful to
+represent them in a computer language.  We choose Python because of its
+focus on human readability and its popularity in scientific computing.
+In Python, this update formula can be described as the following function
+\begin{lstlisting}
+def heat(u0):
+    return u0 + Dt/Dx**2 * (im(u0) - 2*u0 + ip(u0))
+\end{lstlisting}
+where \lstinline{im} and \lstinline{ip} represent values at the $i-1$st grid
+point and $i+1$st grid point, respectively.
+The same stencil update formula (\ref{update00}) is applied at every
+grid point $i$, for every time step $n$.
+
+We can solve a wide variety of problems by applying stencil update formulas
+at a set of spatial grid points over a series of time steps.
+More complex update formulas are often used to increase the accuracy,
+and to solve more complex equations.
+To increase the accuracy for solving the same heat equation, for example, one
+may upgrade the time advancing method from forward Euler to the midpoint
+method.  Also known as the second-order Runge-Kutta, it is derived through more
+complex manipulation of Taylor series.  The resulting update formula is
+\begin{equation} \label{update01}
+\begin{split}
+u_i^{n+\frac12} &= u_i^n + \frac{\Delta t}2 \frac{u_{i-1}^n - 2 u_i^n + u_{i+1}^n}{\Delta x^2}, \\
+u_i^{n+1} &= u_i^n + \Delta t \frac{u_{i-1}^{n+\frac12} - 2 u_i^{n+\frac12} + u_{i+1}^{n+\frac12}}{\Delta x^2}. \\
+\end{split}
+\end{equation}
+Because $u_i^{n+1}$ depends on $u_{i-2}^n$ and $u_{i+2}^n$, the stencil of this update formula is $\{i-2,i-1,i,i+1,i+2\}$.
+This update formula can be described as the following function
+\begin{lstlisting}
+def heatMidpoint(u0):
+    u_half = u0 + Dt/Dx**2/2 * (im(u0) - 2*u0 + ip(u0))
+    return u0 + Dt/Dx**2 * (im(u_half) - 2*u_half + ip(u_half))
+\end{lstlisting}
+An example of a more complex equation is the following one with a fourth order spatial derivative, which often appears in structural simulations:
+\begin{equation}
+\frac{\partial u}{\partial t} = \frac{\partial^4 u}{\partial x^4}.
+\end{equation}
+Using even more tedious manipulation of Taylor series, we can derive the following update formula
+\begin{equation} \label{update02}
+\begin{split}
+v_i^n &= u_{i-1}^n - 2 u_i^n + u_{i+1}^n, \\
+u_i^{n+1} &= u_i^n + \Delta t \frac{v_{i-1}^n - 2 v_i^n + v_{i+1}^n}{\Delta x^4}.
+\end{split}
+\end{equation}
+This update formula can be described as the following function
+\begin{lstlisting}
+def fourthOrderPde(u0):
+    v0 = im(u0) - 2*u0 + ip(u0)
+    return u0 + Dt/Dx**4 * (im(v0) - 2*v0 + ip(v0))
+\end{lstlisting}
+
+Scientists and mathematicians invented numerous updating formulas to
+simulate various problems.  To make them accurate, stable, flexible,
+and appealing in other aspects, they craft formulas that can involve
+orders of magnitude more calculations than those in our examples.
+In this paper, we focus on update formulas that uses a fixed number of
+inputs and produces the same number of outputs at every grid points.
+The outputs depend on the inputs at a stencil, a neighboring set
+of grid points.  The update formula is applied to a set of
+every grid points over a series of time steps.
+
+We can decompose a complex update formula into a sequence of stages.
+Such decomposition is desirable if the simulation runs on
+massively parallel computers.  Processors in such computers must
+communicate during a simulation.  These communications can be simplified if
+a complex update formula is decomposed into simpler stages in the following
+way
+\begin{enumerate}
+\item Each stage generates outputs that feed into the inputs of the next stage.
+      The inputs of the first stage and the outputs of the last stage match
+      the inputs and outputs of the entire update formula.
+\item Each stage is {\bf atomic}, which means that its outputs at
+    each grid point depend on the
+    inputs at no further than the immediately neighboring grid points.
+\end{enumerate}
+Some parallel computing method, such as the swept decomposition scheme,
+is based on the assumption that an update formula is decomposed into atomic
+stages.
+
+For example, the update formula (\ref{update00}) is an atomic stage.
+Its input is $u_i^n$; its output is $u_i^{n+1}$.  Update formula
+(\ref{update01}) can be decomposed into two atomic stages in the following
+way.  The input of the first stage is $u_i^n$, and the outputs include 
+$u_i^{n+\frac12}$ and a copy of $u_i^{n}$.  These outputs must be the inputs of
+the next stage, whose output is $u_i^{n+1}$.  These stages can be encoded as
+\begin{lstlisting}
+def heatMidpoint_stage1(u0):
+    u_half = u0 + Dt/Dx**2/2 * (im(u0) - 2*u0 + ip(u0))
+    return u0, u_half
+
+def heatMidpoint_stage2(inputs):
+    u0, u_half = inputs
+    return u0 + Dt/Dx**2 * (im(u_half) - 2*u_half + ip(u_half))
+\end{lstlisting}
+
+Decomposition into atomic stages is not unique.  In addition to
+the decomposition above, for example, the same update formula (\ref{update00})
+can be decomposed in the following different ways:
+\begin{enumerate}
+        \item
+\begin{lstlisting}
+def heatMidpoint_stage1(u0):
+    im_plus_ip_u0 = im(u0) + ip(u0)
+    return u0, im_plus_ip_u0
+
+def heatMidpoint_stage2(inputs):
+    u0, im_plus_ip_u0 = inputs
+    u_half = u0 + Dt/Dx**2/2 * (im_plus_ip_u0 - 2*u0)
+    return u0 + Dt/Dx**2 * (im(u_half) - 2*u_half + ip(u_half))
+\end{lstlisting}
+
+        \item
+\begin{lstlisting}
+def heatMidpoint_stage1(u0):
+    u_half = u0 + Dt/Dx**2/2 * (im(u0) - 2*u0 + ip(u0))
+    im_plus_ip_u_half = im(u_half) + ip(u_half)
+    return u0, u_half, im_plus_ip_u_half
+
+def heatMidpoint_stage2(inputs):
+    u0, u_half, im_plus_ip_u_half = inputs
+    return u0 + Dt/Dx**2 * (im_plus_ip_u_half - 2*u_half)
+\end{lstlisting}
+\end{enumerate}
+Note that the first alternative decomposition passes two variables from the
+first stage to the second stage, the same number as passed by the original
+decomposition; the second alternative decomposition, however, passes three
+variables from the first stage to the second stage.  Because passing
+variables between stages may incur communication of data between parallel
+computing units, we consider it less efficient to pass more variables.
+In this metric, the second alternative decomposition is inferior to both
+the original decomposition and the first alternative.
+
+Many update formulas can be decomposed into a sequence of atomic stages,
+such that the outputs of each stage is the inputs of the next.
+The goal of this paper is to automatically find the best decomposition
+for very complex update formulas, such that the total amount of variables
+passed between the decomposed stages is as few as possible.
+
+
+\section{Graph theoretical representation of a stencil update formula and its
+atomic decomposition}
+
+To algorithmically find a decomposition for a given stencil update formula,
+we view it as a directed acyclic graph $(V,E)$.
+Vertices in the graph, denoted by integers 0,1,$\ldots$,
+represent intermediate values in the update formula.
+We interchangeably use Variable $i$ and Vertex $i\in V$ in this paper.
+An edge $(i,j)$ exists if $j$ directly depends on $i$, i.e., if
+Variable $i$ is directly used in the computation of Variable $j$.
+Source vertices with no incoming edges are the inputs of the stencil update
+formula. Sink vertices with no outgoing edges are the outputs.
+Figure \ref{f:decomp_heat} shows an example of such a graph for Update formula
+(\ref{update01}).  We call this directed acyclic graph the
+computational graph of the update formula.
+
+Special edges represent value dependency at neighboring grid points.
+If Variable $j$ at a grid
+point depends on Variable $i$ at a neighboring grid point, then
+$(i,j)$ is called a `{\bf swept}' edge.  Operations that
+create swept edges include \lstinline!im(u)! and \lstinline!ip(u)!.
+The set of swept edges are denoted by $E_S \subset E$.  Swept edges are
+visualized by triple lines in Figure \ref{f:decomp_heat}.
+
+\begin{figure}[htb!] \centering
+    \begin{lstlisting}
+    def heatMidpoint(u0):
+        uHalf = u0 + Dt/Dx**2/2 * (im(u0) - 2*u0 + ip(u0))
+        return u0 + Dt/Dx**2 * (im(uHalf) - 2*uHalf + ip(uHalf))
+    \end{lstlisting}
+    \includegraphics[width=\textwidth]{fig/heat_midpoint} \\
+    \begin{tabular}{|c|c|}
+        \hline
+        Vertex & represents intermediate value \\
+        \hline
+        0 & \lstinline!u0! \\
+        1 & \lstinline!im(u0)! \\
+        2 & \lstinline!2 * u0! \\
+        3 & \lstinline!ip(u0)! \\
+        4 & \lstinline!im(u0) + ip(u0)! \\
+        5 & \lstinline!im(u0) + ip(u0) - 2 * u0! \\
+        6 & \lstinline!dt / dx**2 * (im(u0) + ip(u0) - 2 * u0)! \\
+        7 & \lstinline!uHalf = u0 + dt / dx**2 * (im(u0) + ip(u0) - 2 * u0)! \\
+        8 & \lstinline!2 * uHalf! \\
+        9 & \lstinline!im(uHalf)! \\
+       10 & \lstinline!ip(uHalf)! \\
+       11 & \lstinline!im(uHalf) + ip(uHalf)! \\
+       12 & \lstinline!im(uHalf) + uip(uHalf) - 2 * uHalf! \\
+       13 & \lstinline!dt / dx**2 * (im(uHalf) + ip(uHalf) - 2 * uHalf)! \\
+       14 & \lstinline!u0 + dt / dx**2 * (im(uHalf) + ip(uHalf) - 2 * uHalf)! \\
+        \hline
+    \end{tabular}
+    \caption{Atomic decomposition of the midpoint scheme for the heat equation
+             represented as a computational graph.}
+    \label{f:decomp_heat}
+\end{figure}
+
+The computational graph helps visualizing not only the update formula,
+but also its decomposition into atomic stages.  In the decomposition,
+the computational graph is divided into a sequence of sub-graphs,
+each representing an atomic stage.  An intermediate value
+can either live within a single atomic stage, or be created in one stage
+and passed to subsequent stages for further use; therefore,
+a vertex in the computational graph can belong to either one sub-graph
+or several successive sub-graphs.
+We do not allow a stage to repeat a computation that has been performed
+in a previous stage; therefore, each vertex is created in one and only one
+stage, a stage that not only solely owns all the incoming edges of that vertex,
+but also contains all the vertices from which these edges originate.
+
+The {\bf source} of each atomic stage is the set of vertices
+with no incoming edges in the sub-graph; these are the inputs of the
+atomic stage. The {\bf sink} of each atomic stage is the set of
+vertices with no outgoing edges in the sub-graph; they are the outputs.
+Because the outputs of each state serve as inputs of the next, the sink of
+one sub-graph must be identical to the source of the next sub-graph.
+In addition, the source of the first sub-graph and the sink of the
+last sub-graph should match the source and sink of the entire computational
+graph.
+
+Recall that a stage is atomic only if its outputs depend on its
+inputs at no further than the immediately
+neighboring grid points.  This property can be graph-theoretically enforced,
+by allowing {\bf at most one swept edge in a path} within a sub-graph.
+If every path from a source value to a sink value of the sub-graph
+contains no more one swept edge, the corresponding output value can only
+depend on the corresponding input value at the immediately neighboring
+grid points.
+
+Now we can formulate a graph theoretical equivalence to the problem of
+decomposing a stencil update formula into atomic stages.  This is
+to decompose a directed acyclic graph $(V,E)$, with swept edges
+$E_S\subset E$, into a sequence of sub-graphs $(V_1,E_1), \ldots,
+(V_{k}, E_{k}$, such that
+\begin{enumerate}
+    \item Each edge in $E$ belongs to one and only one subgraph.  That implies
+          no redundant computation is performed.  In addition,
+          each vertex $i\in V$, all incoming edges belong to one subgraph,
+          which corresponds to the stage in which Variable $i$ is computed.
+    \item The source of each subgraph, other than the first one,
+          must be contained in the previous subgraph.
+          In addition, the source of the first subgraph $(V_1,E_1)$ must
+          match the source of $(V,E)$; the and sink of $(V,E)$
+          must be contained in $V_K$.
+    \item There are no paths within any subgraph $(V_k,E_k)$ that contains
+          two edges in $E_S$.
+\end{enumerate}
+
+Figure \ref{f:decomp_heat} shows an example of an atomic decomposition.
+The source of the stencil update formula is Variable 0; the sink is Variable 14.
+Red and blue colors represent edges in the first and second sub-graph.
+The source of the first stage include only Variable 0.
+Vertices 1-6 belong exclusively to the red sub-graph; they are created in
+the red sub-graph, and are used to compute values only in the same
+sub-graph.  In other words, all their incoming and outgoing edges are red.
+Vertices 8-14 belong exclusively to the blue sub-graph; all their incoming
+and outgoing edges are blue.  Vertices 0 and 7 are shared by both sub-graphs.
+Both are created in the red sub-graph (inputs to the entire update formula
+are defined to be created in the first sub-graph); both are used in both
+red and blue sub-graphs.  These two vertices are the sink of the red sub-graph,
+and source of the blue sub-graph.
+Neither the red nor blue sub-graph contains directed path
+that goes through more than one {\it swept} edges, visualized by the
+triple-lines.
+
+\section{Algebraic representation of an atomic decomposition}
+
+Using the graph theoretical representation, we can formulate
+a set of algebraic constraints, the satisfaction of which leads to
+an atomic decomposition of an update formula.  We can then use these
+conditions as constraints, and solve an optimization problem to
+minimizes the values passed between the decomposed stages.
+If satisfaction of the constraints is not only sufficient but also necessary
+for a valid decomposition, then by solving the constrained optimization
+problem, we are guaranteed to obtain the best possible decomposition.
+
+The main challenge of constructing these constraints is the third condition
+in the last section, which forbids any path within a subgraph that contains
+two swept edges.  Naively enforcing this condition requires enumerating all
+paths, which can be combinatorially many.  This section shows that this
+condition can be enforced more efficiently, along with other conditions,
+by introducing three integers for each vertex, and prescribing linear
+equalities and inequalities on these integers.
+
+To describe the set of constraints,
+we use integers $1,2,\ldots,K$ to denote the $K$ decomposed stages.
+We then introduce the following three integers associated with each vertex
+in the computational graph:
+\begin{enumerate}
+    \item The {\it creating stage} $c_i$,
+    \item The {\it discarding stage} $d_i$,
+    \item The {\it effective stage} $e_i$,
+\end{enumerate}
+
+The first integer, the {\it creating stage} $c_i$,
+indicates in which stage Variable $i$ is created.
+It is the first subgraph for which vertex $i$ is in.
+In other words, $c_i := \min \{ k: i\in V_k\}$.
+The second integer, the {\it discarding stage} $d_i$,
+indicates in which stage Variable $i$ is last used.
+It is the last subgraph for which vertex $i$ is in.
+In other words, $k_i := \max \{ k: i\in V_k\}$.  Because
+a value must first be created, $d_i$ is always
+greater or equal to $c_i$.  This leads to our first constraint,
+\begin{equation} \label{cond1}
+    c_i - d_i \le 0\;.
+\end{equation}
+Specifically, if $c_i=d_i$, then
+Variable $i$ belongs exclusively to Stage $c_i$; its corresponding vertex
+has all incoming and outgoing edges in this same stage.
+If $c_i<d_i$, then Variable $i$ belongs to Stages $c_i, c_i+1, \ldots, d_i$.
+
+If Variable $i$ belongs to the source of the update formula, then
+\begin{equation}
+    c_i = 1\;,
+\end{equation}
+i.e., it is created at the first stage.
+If Variable $i$ belongs to the sink of the update formula, then
+\begin{equation}
+    d_i = K\;;
+\end{equation}
+this is to indicate that an output is used after the last stage.
+These are equality constraints associated with the source and sink of
+the update formula.
+
+The next set of constraints is based on the following truth.
+For a valid decomposition satisfying the properties in Section 3,
+the creating stage satisfies the following property:
+
+{\bf Edge Lemma:}  
+For a valid decomposition,
+if $(i,j)\in E_k$, then $c_j:=\min \{ k': j\in V_{k'}\}=k$.
+
+\begin{proof} Because $(i,j)\in E_k$, $j \in V_k$.
+Then by its definition, $c_j \le k$.
+It is then sufficient to prove that vertex $j$ cannot be in any $V_{k'}, k'<k$.
+We prove this by contradiction.  Because $j$ has one incoming edge in $E_k$,
+all its incoming edges must be exclusively in $E_k$.  If $j\in V_{k'}, k'<k$,
+then $j$ has no incoming edge in $(V_{k'}, E_{k'})$, and must be a source
+of the subgraph.  If $k'=1$, then by Condition 2 of Section 3, $j$ must
+be in the source of $(V,E)$, which cannot be true because $j$ has an
+incoming edge $(i,j)$.  If $k'>1$, then $j$ being in the source of 
+$(V_{k'}, E_{k'})$ implies, by Condition 2 again, that $j$ must be in
+$(V_{k'-1}, E_{k'-1})$, which leads to contradiction by induction.
+\end{proof}
+
+{\bf Edge Corollary:}  
+For a valid decomposition,
+$\forall (i,j)\in E$, then $c_i:=\min \{ k': i\in V_{k'}\}\le c_j$.
+
+\begin{proof} Each $(i,j)$ belongs to one and only one subgraph.
+Denote $(i,j)\in E_k$.  Then $i\in V_k$, and by its definition $c_i\le k$.
+By the Edge Lemma, $c_j=k$.  Thus $c_i\le c_j$.
+\end{proof}
+
+The lemma and corollary indicates that if $(i,j)\in E_k$, then
+$c_i\le c_j=k$.  In addition, by the definition of a subgraph,
+both $i$ and $j$ must belong to $V_k$.  Thus the definition of $d_i$
+implies that $d_i\ge k$.  This leads to our second set of inequality
+constraints,
+\begin{equation} \label{cond4}
+    c_i \le c_j \le d_i
+\end{equation}
+
+The next set of constraints is derived from Condition 3 of Section 3,
+which enforces that the decomposed stages are atomic.  Recall that a stage
+is atomic if every directed path in its subgraph contains at most one
+swept edge.  Naively enforcing this condition requires enumerating
+over all paths in a subgraph, leading to exponentially many constraints.
+To avoid the combinatorial explosion of constraints, we prove an equivalent
+definition of an atomic stage that requires fewer constraints to enforce.
+
+{\bf Atomic Stage Lemma:} 
+A directed acyclic graph $(V_k, E_k)$ with swept edges $E_{S,k}\subset E_k$
+is atomic if and only if there exists an $s_{i;k} \in \{0,1\}$ for each
+$i\in V_k$,
+such that
+\begin{enumerate}
+    \item $\forall (i,j)\in E_k$, $s_{i;k} \le s_{j;k}$,
+    \item $\forall (i,j)\in E_{S;k}$, $s_{i;k} < s_{j;k}$.
+\end{enumerate}
+
+The Atomic Stage Lemma is proved in Appendix A.  It is critical to efficiently
+enforce that each stage is atomic.  It reduces the necessary
+constraints from as many as the number of paths, which can scale exponentially
+to the size of a graph, to the number of edges, which scales linearly.
+
+The set of integers $s_{i;k}$ in the lemma, however, is specific to each
+subgraph $k$.
+They can only be defined on top of a valid decomposition.  In order
+to specify a-priori conditions that can serve as foundation to build a
+valid decomposition, we define $e_i$, the effective stage, for each $i\in V$.
+The purpose of $e_i$ is such that for each $0\le k<K$,
+\begin{equation} \label{s_i_e_i}
+    s_{i;k} := \begin{cases}
+        e_i - c_i & c_i = k \\
+        0 & c_i < k \le d_i
+    \end{cases}
+\end{equation}
+satisfies both conditions in the Atomic Stage Lemma for subgraph $k$.
+The introduction of $e_i$, together with $c_i$ and $d_i$ introduced previously,
+and the set of equality and inequality constraints derived previously,
+leads us to the main theorem of this section.  We name it the ``Quarkflow``
+theorem since the triplet of integers $(c_i,d_i,e_i)$ representing each
+vertex is analogous to quarks forming each subatomic particle.
+
+{\bf Quarkflow Theorem:} 
+A graph $(V,E)$ is decomposed into $K$ subgraphs,
+$(V_0,E_0)$, $\ldots$, $(V_{K-1},E_{K-1})$.
+The decomposition satisfy the three criteria stated
+in Section 3, if and only if there exists a triplet of integers
+$(c_i, d_i, e_i)$ for vertex $i\in V$, such that the following constraints
+are satisfied:
+\begin{enumerate}
+    \item $c_i \le d_i$ for all $i\in V$
+    \item $c_i = 1$ for all $i$ in the source of $V$
+    \item $d_i = K$ for all $i$ in the sink of $V$
+    \item $c_i \le c_j \le d_i$ for all $(i,j)\in E$
+    \item $c_i \le e_i \le c_i + 1$ for all $i\in V$
+    \item $e_i \le e_j$ for all $(i,j)\in E$
+    \item $e_i + 1 \le e_j$ for all $(i,j)\in E_S$
+    \item $c_i + 1 \le e_i$ for all $i\in V$ where $\exists (j,i)\in E_S$
+\end{enumerate}
+and that $\forall k=1,\ldots,K,
+V_k=\{i : c_i\le k\le d_i\}$, $E_k=\{(i,j)\in E : c_j=k\}$.
+
+This theorem achieves the goal of this section. To find a decomposition,
+we only need to find the integer triplets, $(c_i,d_i,e_i),\forall i\in V$,
+together with the number of stages $K$, satisfying all these constraints.
+If we can use the same set of integers
+to describe how good the decomposition is, we can solve an integer program
+to find the best possible decomposition.
+
+\section{Decomposition as the dual of a network flow problem}
+
+In the last section, we proved that any valid decomposition of a stencil
+update formula can be represented by a set of integers, $K$
+and $(c_i,d_i,e_i),\forall i\in V$ that satisfy a set of linear constraints
+among these integers.  The reverse is also true: any set of integers satisfying
+these constraints represents a valid decomposition.  In this section, we
+complete these linear constraints with a linear cost function to form
+an integer program.
+
+The cost function should model how expensive it is to execute the
+decomposed formula.  This cost, in a massively parallel computation, depends
+on the interconnect, the domain decomposition, and the solver.
+In this paper, we use a very simplistic cost function, composed of
+two factors:
+the number of stages and the amount of coupling between the stages.
+These factors correspond to the communication cost
+of executing the decomposed formula in the swept rule of parallel computing
+\cite{alhubail2016swept}.  The number of stages is proportional to how often
+data needs to be communicated, thereby models the communication
+time due to network latency.  The amount of coupling between stages can
+correspond to how much data is communicated, thereby models
+how much time due to network bandwidth.
+Both factors can be represented algebraically using the same
+integers $K$ and $(c_i,d_i,e_i)$ we use in Section 3.
+
+The first factor, the number of atomic stages, is simply $K$.  The second
+factor, the amount of coupling, can be modeled as the amount of
+value sharing between stages.  If a value belongs to only one stage,
+i.e., $c_i=d_i$, it does not contribute to the amount of coupling.
+If a value belongs to multiple stages, it couples these stages $c_i,\ldots,d_i$.
+It then contributes an amount $w_i (d_i-c_i)$ to the total coupling.
+$w_i,i\i V$ here are the weights of the vertices in the graph.  If all vertices
+represent values of the same size, we can set $w_i\equiv 1$.  If vertices
+can represent values of different size, i.e., vectors, matrices and tensors,
+then $w_i$ can be set to the number of bytes required to store the $i$th
+intermediate value at each grid point.  The two factors can be blended using
+a weight factor $W_K$.  The blended cost function combines with the
+constraints in the Quarkflow Theorem of Section 4 to form the following integer
+programming problem
+
+\begin{equation} \label{ip} \begin{split}
+    \min_{K,c_i,d_i,e_i,i\in V} \quad & W_K K + \sum_i w_i (d_i - c_i) \\
+    s.t. \quad & K,c_i,d_i,e_i\in \mathcal{Z}\\
+    & c_i = 1,\quad \forall i \in V_S \\
+    & d_i - K = 0,\quad \forall i \in V_T \\
+    & c_i - d_i \le 0,\quad \forall i\in V \\
+    & c_i - c_j \le 0,\quad \forall (i,j)\in E \\
+    & c_j - d_i \le 0,\quad \forall (i,j)\in E \\
+    & c_i - e_i \le 0,\quad \forall i\in V: \nexists (j,i)\in E_S \\
+    & e_i - c_i \le 1,\quad \forall i\in V \\
+    & e_i - e_j \le 0,\quad \forall (i,j)\in E \setminus E_S \\
+    & e_i - e_j \le -1,\quad \forall (i,j)\in E_S \\
+    & c_i - e_i \le -1,\quad \forall i\in V: \exists (j,i)\in E_S
+\end{split} \end{equation}
+where $\mathcal{Z}$ represent all integers;
+$V_S$ and $V_T$ represent the source and sink of the $(V<E)$, respectively.
+
+This integer program problem can be solved by solving the equivalent linear
+program, ignoring the requirement that the solutions must be integers,
+by a simplex method.  This is a characteristic shared by all integer
+programming problems in which the constraint matrix is totally
+unimodular\cite{} and the constraint constants are integers.
+This problem (\ref{ip}) has a unimodular constraint matrix because all its
+constraints involving the difference between pairs of variables\cite{}.
+Therefore, each row of the constraint matrix has exactly two entries, one
+equals to 1, the other equals to -1.  The transpose of this matrices
+has the same property as the constraint matrix of a flow network.
+Because the constraint matrix of flow networks are totally
+unimodular\cite{}, our constraint matrix is totally unimodular.
+
+Not only is the constraint matrix transpose to that of a flow network,
+the linear program has a symmetric dual problem that is
+a minimum-cost flow problem on a flow network.  Each variable
+in Problem (\ref{ip}), including $c_i, d_i, e_i$ and $K$,
+is a vertex in this flow network.  An additional vertex, denoted as 0,
+is introduced for the single-variable constraints
+$c_i = 1,\forall i \in V_S$.  The dual of Problem (\ref{ip}) as
+a linear program is
+\begin{equation} \label{dual_lp} \begin{split}
+    \mbox{Choose} \; & \\
+    \forall i\in V_S, & \quad x_{c_i,0}\in R, \\
+    \forall i\in V_T, & \quad x_{d_i,K}\in R, \\
+    \forall i\in V,   & \quad x_{c_i,d_i}\ge 0, \\
+                      & \quad x_{c_i,e_i}\ge 0, \\
+                      & \quad x_{e_i,c_i}\ge 0, \\
+    \forall (i,j)\in E, & \quad x_{c_i,c_j} \ge 0, \\
+                        & \quad x_{c_j,d_i} \ge 0, \\
+                        & \quad x_{e_i,e_j} \ge 0 \\
+    \mbox{in order to} \; & \\
+    \min \quad & \sum_{i\in V_S} x_{c_i,0} + \sum_{i\in V} (x_{e_i,c_i} -
+                 I_{\exists (j,i)\in E_S} x_{c_i,e_i})
+               - \sum_{(i,j)\in E_S} x_{e_i, e_j} \\
+    s.t. \quad
+    & \sum_{i\in V_T} x_{d_i,K} = W_K, \quad
+    \mbox{and } \forall i\in V, \\
+    & I_{i\in V_S} x_{c_i,0} +
+      x_{c_i, d_i} + x_{c_i, e_i} - x_{e_i, c_i} +
+     \sum_{j: (j,i)\in E} (x_{c_i, d_j} - x_{c_j, c_i}) +
+      \sum_{j: (i,j)\in E} x_{c_i, c_j} = w_i \\
+    & I_{i\in V_T} x_{d_i, K} - x_{c_i, d_i} -
+      \sum_{j: (i,j)\in E} x_{c_j, d_i} = -w_i \\
+    & -x_{c_i, e_i} + x_{e_i, c_i} + \sum_{j:(i,j)\in E} x_{e_i,e_j}
+      - \sum_{j:(j,i)\in E} x_{e_j,e_i} = 0 \\
+\end{split} \end{equation}
+The constraints are flow balance equations on all vertices in the flow network,
+except for vertex 0, whose balance equation is a redundant linear combination
+of the constraints listed above:
+\[ \sum_{i\in V_S} x_{c_i,0} = -W_K \]
+Adding this redundant constraint to the above problem, it becomes clear
+that this is a minimum cost flow network problem\cite{}, one that
+can leverage specialized, fast solvers, such as the out-of-kilter
+algorithm\cite{} and relaxation algorithms \cite{}.
+
+\section{Implementation, Tests and Results}
+
+To demonstrate the algorithm developed in this paper,
+the minimum cost flow network problem (\ref{dual_lp}) is
+solved using the out-of-kilter algorithm\cite{}, implemented in the open source
+package GLPK\cite{}.  The out-of-kilter algorithm returns the
+solution of both the linear program (\ref{dual_lp}) and
+its dual (\ref{ip}).  The dual solution includes $c_i$ for each vertex $i\in V$,
+indicating the stage in which the corresponding value should be created.
+The solution also include $d_i$ for each vertex.  Its value relative to
+$c_i$ determines whether the corresponding value is used only in its
+creating stage, or should be passed to subsequent stages for further use.
+
+\begin{figure}[htb!] \centering
+    \subfloat[]{\includegraphics[width=0.6\textwidth]{fig/1}}\\
+    \subfloat[]{\includegraphics[width=0.6\textwidth]{fig/3}}\\
+    \subfloat[]{\includegraphics[width=0.6\textwidth]{fig/4}}\\
+    \subfloat[]{\includegraphics[width=0.6\textwidth]{fig/5}}\\
+    \subfloat[]{\includegraphics[width=0.6\textwidth]{fig/6}}\\
+    \subfloat[]{\includegraphics[width=0.6\textwidth]{fig/7}}
+    \caption{Atomic decomposition of manufactured test cases.
+    The number and subscript shown in each vertex represent the index $i$
+    and weight $w_i$ of the vertex.  Triple-lined edges represent ``swept''
+    edges.  Different colors represent different stages.
+    Double circles represent vertices shared by more than one stages.}
+    \label{f:manu}
+\end{figure}
+
+The implementation can be found in the ``Quarkflow'' tool included
+in the software ``pascal''\footnotemark[1]
+\footnotetext[1]{https://github.com/qiqi/pascal,
+branch master, commit df01f76a8bf1bc64237d2e346616dd67e6dd8116}.
+The algorithm is first tested in a series of manufactured test cases,
+as shown in Figure \ref{f:manu}.
+
+In (a), our algorithm is asked
+to decompose a graph of eight vertices, each vertex only depends on the
+previous one.  Three out of the seven dependencies are swept.  The
+optimal decomposition should split the graph into three subgraphs,
+each containing one swept edge.  The two vertices at which the graph
+is split, thus shared by two subgraphs, should be of as lower weight
+as possible.  The outcome of 
+our algorithm correctly produces this optimal behavior; both shared
+vertices are of weight 1.
+
+In (b), two additional edges are added, but without affecting the
+decomposition.  The creating stage and discarding stage of each variable
+can stay the same, thereby creating no more shared vertices.
+Our algorithm still chooses the same optimal decomposition
+as before.
+
+In (c), an edge is added from Vertex 1 to Vertex 3.  To keep the creating stage
+of Vertex 3 (green), Vertex 1 must be shared between the blue and green stages.
+This would have been expensive since Vertex 1 has a weight of 4.  To reduce
+the cost, our algorithm correctly places Vertex 3 into the blue stage, sharing
+it between the blue and green stages.  Because Vertex 3 has weight of 2,
+sharing it costs less than sharing Vertex 1.
+
+In (d), another edge is added from Vertex 2 to Vertex 5.  Keeping the creating
+stage of Vertex 5 would require now sharing Vertex 2 between all three stages,
+increasing the cost function of (\ref{lp}) by 1.  Instead, our algorithm
+changed the creating stage of Vertex 5, sharing it between the green and
+purple stages.  The resulting increase of the cost function is also 1.  This
+is a case in which multiple optimums exist.
+Note that any linear combination of these integer optimums also solves
+the linear program.  The out-of-kilter algorithm always chooses one of
+the integer optimums.
+
+In (e), an edge is added from Vertex 2 to Vertex 6.  Now Vertex 2 must be
+shared among all three stages anyway, our algorithm found it unnecessary to
+share Vertex 5, and reverts to sharing the cheaper Vertex 4 between the green
+and purple stages.
+
+In (f), the edge from 4 to 5 is changed to a swept edge.  It forces an
+additional stage to be created.  Our algorithm splits the additional stage
+by sharing Vertices 2 and 5.
+With a combined weight of 3, they are cheaper than sharing Vertex 6,
+which alone has a weight of 4.
+
+\begin{figure}[htb!] \centering
+    \includegraphics[width=\textwidth]{fig/heat_midpoint_3d}
+    \caption{Atomic decomposition of a 3D heat equation, integrated using
+    the midpoint rule (two-stage Runge-Kutta).
+    The number and subscript shown in each vertex represent the index $i$
+    and weight $w_i$ of the vertex.  Triple-lined edges represent ``swept''
+    edges.  Different colors represent different stages.  Double circles
+    represent vertices shared by more than one stages.}
+    \label{f:heat3d}
+\end{figure}
+
+Our algorithm is then tested on a 3D heat equation stencil update formula,
+using a two-stage Runge Kutta scheme.  The formula is described in Python
+as following.
+\begin{lstlisting}
+        uh = u + 0.5 * dt / dx**2 * (im(u) + ip(u) - 2 * u +
+                                     jm(u) + jp(u) - 2 * u +
+                                     km(u) + kp(u) - 2 * u)
+        return u + dt / dx**2 * (im(uh) + ip(uh) - 2 * uh +
+                                 jm(uh) + jp(uh) - 2 * uh +
+                                 km(uh) + kp(uh) - 2 * uh)
+\end{lstlisting}
+The code above is fed into the software ``pascal''\footnotemark[1],
+which automatically builds the computational graph using operator overloading,
+then calls ``quarkflow'' to decompose the graph, then translates each
+subgraph into C code for execution on parallel architectures.  Figure
+\ref{f:heat3d} illustrates the decomposed computational graph in this
+example, the update formula is decomposed into two stages, sharing Vertex
+14 and 38.
+
+\begin{figure}[htb!] \centering
+    \includegraphics[width=\textwidth]{fig/euler_rk4.pdf}
+    \caption{Automatic decomposition of a complex time step into eight atomic
+    stages.  The update formula is for the Euler equation of
+    gas dynamics in three spatial dimensions, using a second-order
+    finite-difference spatial discretization scheme, and a fourth-order
+    Runge-Kutta time integrator.  This decomposition of a computation graph
+    with 1473 vertices and 2167 edges took 0.3 seconds on
+    an Intel(R) Core(TM) i7-6650U CPU @ 2.20GHz.}
+    \label{f:euler3d}
+\end{figure}
+
+Finally, our algorithm is applied to an update formula of the Euler equation
+for gas dynamics.  The spatial discretization is the conservative,
+skew-symmetric finite difference scheme, with a conservative, symmetric,
+negative-definite 4th order numerical dissipation. The temporal discretization
+is the 4th order Runge-Kutta scheme.  Each spatial discretization requires
+information from the neighbor of neighboring grid points.  Each time step
+requires 4 level of spatial discretization, thereby requiring access to 8
+levels of neighboring grid points.  The formula was encoded in Python below,
+and is automatically decomposed.  Figure \ref{f:euler3d} shows the
+decomposition into 8 stages of this update formula.
+
+\begin{lstlisting}
+def diffx(w): return (ip(w) - im(w)) / (2 * dx)
+def diffy(w): return (jp(w) - jm(w)) / (2 * dy)
+def diffz(w): return (kp(w) - km(w)) / (2 * dz)
+
+def div_dot_v_phi(v, phi):
+    return diffx(v[0] * phi) + diffy(v[1] * phi) + diffz(v[2] * phi)
+
+def v_dot_grad_phi(v, phi):
+    return v[0] * diffx(phi) + v[1] * diffy(phi) + v[2] * diffz(phi)
+
+def dissipation(r, u):
+    laplace = lambda u: (ip(u) + im(u) + jp(u) + jm(u) + jp(u) + jm(u)) / 6 - u
+    return laplace(DISS_COEFF * r * r * laplace(u))
+
+def assemble_rhs(mass, momentum_x, momentum_y, momentum_z, energy):
+    rhs_w = zeros(w.shape)
+    rhs_w[0] = -mass
+    rhs_w[1] = -momentum_x
+    rhs_w[2] = -momentum_y
+    rhs_w[3] = -momentum_z
+    rhs_w[4] = -energy
+    return rhs_w
+
+def rhs(w):
+    r, rux, ruy, ruz, p = w
+    ux, uy, uz = rux / r, ruy / r, ruz / r
+    ru, u = (rux, ruy, ruz), (ux, uy, uz)
+
+    mass = div_dot_v_phi(ru, r)
+    mom_x = (div_dot_v_phi(ru, rux) + r * v_dot_grad_phi(ru, ux)) / 2 + diffx(p)
+    mom_y = (div_dot_v_phi(ru, ruy) + r * v_dot_grad_phi(ru, uy)) / 2 + diffy(p)
+    mom_z = (div_dot_v_phi(ru, ruz) + r * v_dot_grad_phi(ru, uz)) / 2 + diffz(p)
+    energy = gamma * div_dot_v_phi(u, p) - (gamma-1) * v_dot_grad_phi(u, p)
+
+    dissipation_x = dissipation(r, ux) * c0 / dx
+    dissipation_y = dissipation(r, uy) * c0 / dy
+    dissipation_z = dissipation(r, uz) * c0 / dz
+
+    rhs_r  = c0 * fan * (r  - r_fan)
+    rhs_ux = c0 * fan * (ux - ux_fan) + c0 * obstacle * ux
+    rhs_uy = c0 * fan * (uy - uy_fan) + c0 * obstacle * uy
+    rhs_uz = c0 * fan * (uz - uz_fan) + c0 * obstacle * uz
+    rhs_p  = c0 * fan * (p  - p_fan)
+
+    return assemble_rhs((mass - rhs_r) / (2 * r) + fan * (r - r_fan),
+                        (mom_x + dissipation_x - rhs_ux) / r,
+                        (mom_y + dissipation_y - rhs_uy) / r,
+                        (mom_z + dissipation_z - rhs_uz) / r, (energy - rhs_p))
+
+def step(w):
+    dw0 = dt * rhs(w)
+    dw1 = dt * rhs(w + 0.5 * dw0)
+    dw2 = dt * rhs(w + 0.5 * dw1)
+    dw3 = dt * rhs(w + dw2)
+    return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
+\end{lstlisting}
+
+\section{Conclusion}
+
+This paper shows that we can decompose a complex stencil update
+formula by solving the dual of a minimum cost flow network problem.
+This is a highly nontrivial result, because brute force solution of
+the original problem is an integer program of combinatorial complexity.
+Instead, the reformulation presented in this paper leads to a
+linear program of appealing structure, amenable to some very efficient
+algorithms.  As a result, even complex stencils can be decomposed
+efficiently.
+
+Efficient and automatic decomposition of complex stencil update formulas,
+such as the one for the Euler equation presented in Section 6, simplifies
+application of the swept decomposition rule \cite{} for breaking the latency
+barrier.  To use the swept decomposition rule to a numerical scheme, one
+only need to encode the stencil update formula of the scheme in Python.
+The update formula is then quickly and automatically decomposed into a series
+of atomic stages, each can be translated into low level computer code.
+The resulting code can then be inserted into a software framework for executing
+the scheme in the swept decomposition rule.
+
+\section*{Acknowledgment}
+
+The author acknowledges support from the NASA TTT program under
+Dr. Mujeeb Malik and technical monitor Dr. Eric Nielsen.  The
+paper significantly benefited from discussions with Dr. David Gleich,
+Dr. Christopher Maes, and Dr. Michael Saunders.
+
+% =========================================================== %
+
+\appendix
+
+\section{Proof of the Atomic Stage Lemma}
+
+{\bf Atomic Stage Lemma:} 
+A directed acyclic graph $(V_k, E_k)$ with swept edges $E_{S,k}\subset E_k$
+is atomic if and only if there exists an $s_{i;k} \in \{0,1\}$ for each
+$i\in V_k$,
+such that
+\begin{enumerate}
+    \item $\forall (i,j)\in E_k$, $s_{i;k} \le s_{j;k}$,
+    \item $\forall (i,j)\in E_{S;k}$, $s_{i;k} < s_{j;k}$.
+\end{enumerate}
+
+{\em Proof}.
+Let us denote the directed acyclic graph $(V,E)$ with swept edge set $E_S$ as
+$(V,E,E_S)$.  To prove the theorem, we decompose it into two propositions,
+such that it is sufficient to prove both propositions.
+
+{\bf Proposition 1:}
+If $s_i \in \{0,1\}$ exists for each $i\in V$ and both conditions in the
+theorem are satisfied, then $(V, E, E_S)$ is atomic.
+
+{\bf Proposition 2:}
+If $(V, E, E_S)$ is atomic, then there exists an $s_i \in \{0,1\}$
+for each $i\in V$, such that both conditions in the
+theorem are satisfied.
+
+{\em Proof}.
+Proof of Proposition 1 by contradiction: If $(V,E,E_S)$ is not atomic,
+then there exists a path $(i_0, \ldots, i_n)$ that contains two swept edges.
+Because we can truncate both ends of such a path such that the first and last
+edges are swept, we can assume $(i_0,i_1)\in E_S$ and
+$(i_{n-1},i_n)\in E_S$ without loss of generality.
+From Condition 2 of the theorem,
+$(i_0,i_1)\in E_S\Rightarrow s_{i_0} < s_{i_1}$.  So $s_{i_0} = 0$ and
+$s_{i_1} = 1$ because both must either be 0 or 1.  Similarly,
+$(i_{n-1},i_n)\in E_S\Rightarrow s_{i_{n-1}} < s_{i_n}$.  So $s_{i_{n-1}} = 0$
+and $s_{i_n} = 1$.  From Condition 1 of the theorem, however,
+$(i_k,i_{k+1})\in E\Rightarrow s_{i_k} \le s_{i_{k+1}}$, thus the series
+$s_{i_k}$ must be monotonically non-decreasing, contradicting the previous
+    conclusion that $s_{i_1} = 1$ and $s_{i_{n-1}} = 0$. \qquad\endproof 
+
+To prove of Proposition 2. We first construct a non-negative integer for each
+vertex with the following recursive formula
+\begin{equation} \label{proof_construct_s_j}
+    s_j = \begin{cases}
+        0, & \mbox{Vertex j has no incoming edge} \\
+        \max_{i : (i,j)\in E'} s_i + I_{(i,j)\in E_S} , & \mbox{otherwise}
+    \end{cases}
+\end{equation}
+where $I_{(i,j)\in E_S} = 1$ if $(i,j)\in E_S$ and 0 otherwise.
+By construction, these integers satisfy both conditions in the theorem.
+We then show that if the graph is atomic, then all these integers
+satisfy the additional condition that $s_i \in \{0,1\}$.
+This additional condition can be proved with the aid of the following lemma:
+
+{\bf Lemma:} For every vertex $j$, there exists a path, consisting of zero
+or more edges, that ends at $j$ and contains $s_j$ swept edges, where
+$s_j$ is defined by Equation (\ref{proof_construct_s_j}).
+
+    \begin{proof}
+Proof of Lemma by induction:
+We prove by induction with respect to the length of the longest path that
+ends at Vertex $j$.  If the length of the longest incoming path is 0,
+it means Vertex $j$ has no incoming edge; by definition, $s_j=0$.
+In this case, an empty path suffices
+as one that ends at $j$ and contains $0$ swept edges.  Therefore, the lemma
+is true if the longest incoming path to $j$ is of length 0.
+
+If the lemma is true for any vertex whose longest incoming path is of length
+less than $n>0$, we prove it for any vertex $j$ whose longest incoming path
+is of length $n$.  Because $n>0$, Vertex $j$ has an incoming edge.
+By Equation (\ref{proof_construct_s_j}), there exists an edge $(i,j)$ such that
+$s_j = s_i + I_{(i,j)\in E_S}$.  Note that Vertex $i$ has no incoming path
+of length $n$; if it does, then appending edge $(i,j)$ to that path would
+result in a path to Vertex $j$ of length $n+1$, violating the assumption
+about the longest incoming path to $j$.  Because the longest
+incoming path to Vertex $i$ is less than $n$, by the induction assumption,
+the lemma holds for Vertex $i$:
+there exists a path that ends at Vertex $i$ that contains $s_i$ swept edges.
+At the end of this path, we append edge $(i,j)$ to form a path to Vertex
+$j$.  If $(i,j)\notin E_S$, the path contains the same number of swept edges
+as the path to $i$.  $(i,j)\notin E_S$ also sets $s_j=s_i$
+by Equation (\ref{proof_construct_s_j}).
+Thus this path suffices as one that ends at Vertex $j$ and contains $s_j$
+swept edges.  The other case is $(i,j)\in E_S$,
+and the resulting path to $j$ has one more swept edge than the path to $i$.
+In this case, $s_j=s_i+1$ according to Equation (\ref{proof_construct_s_j}),
+and this path still suffices as one that ends at Vertex $j$ and contains $s_j$
+swept edges.  This shows that the lemma is true for any Vertex $j$ whose
+longest incoming path is of length $n$, thereby completing the induction.
+    \end{proof}
+
+    {\em Proof}.
+Proof of Proposition 2 by contradiction:
+If the proposition is not true for an atomic stage,
+then $s_j$ constructed via Equation 
+(\ref{proof_construct_s_j}) must not satisfy $s_j\in \{0,1\}$ for some $j$.
+Because $s_j$ are non-negative integers by construction, 
+$s_j\notin \{0,1\}$ means $s_j>1$.  By the lemma, there exists a path that
+ends at Vertex $j$ that contains more than 1 swept edges. So the graph
+cannot be an atomic stage, violating the assumption. \qquad\endproof 
+
+\section{Proof of the Quarkflow Theorem}
+
+{\bf Quarkflow Theorem:} 
+A graph $(V,E)$ is decomposed into $K$ subgraphs $(V_0,E_0), \ldots,
+(V_{K-1},E_{K-1})$.
+The decomposition satisfy the three criteria stated
+in Section 3, if and only if there exists a triplet of integers
+$(c_i, d_i, e_i)$ for vertex $i\in V$, such that
+\begin{enumerate}
+    \item $c_i \le d_i$ for all $i\in V$
+    \item $c_i = 1$ for all $i$ in the source of $V$
+    \item $d_i = K$ for all $i$ in the sink of $V$
+    \item $c_i \le c_j \le d_i$ for all $(i,j)\in E$
+    \item $c_i \le e_i \le c_i + 1$ for all $i\in V$
+    \item $e_i \le e_j$ for all $(i,j)\in E$
+    \item $e_i + 1 \le e_j$ for all $(i,j)\in E_S$
+    \item $c_i + 1 \le e_i$ for all $i\in V$ where $\exists (j,i)\in E_S$
+\end{enumerate}
+and that $V_k=\{i : c_i\le k\le d_i\}$, $E_k=\{(i,j)\in E : c_j=k\}$.
+
+\noindent{\bf Proof:}
+
+We split the proof into two subsections.  The first shows that 
+for a decomposition that satisfies the three criteria in Section 3,
+there exists $(c_i,d_i,e_i),\forall i\in V$ satisfying
+all constraints in the theorem, and the decomposition matches $(V_k,E_k)$
+constructed in the theorem.  The second subsection shows that
+if the triplets satisfy all the constraints in the theorem, then 
+$(V_k,E_k)$ is a valid decomposition satisfying all three criteria
+in Section 3.
+
+\subsection{Criteria in Section 3 $\Longrightarrow$
+Constraints in the Quarkflow Theorem}
+For a decomposition that satisfies the three criteria in Section 3,
+we can construct $(c_i,d_i,e_i)$ in the following way:
+\begin{enumerate}
+    \item $c_i = \min \{ k | i\in V_k \}$
+    \item $d_i = \max \{ k | i\in V_k \}$
+    \item $e_i = c_i + s_{i;c_i}$, where \{$s_{i;c_i}\}_{i\in V_{c_i}}$
+        satisfy the two constraints in the Atomic
+        Stage Lemma for subgraph $c_i$.
+\end{enumerate}
+Constraints 1, 2, and 3 are satisfied by construction.
+
+For Constraint 4, consider each $(i,j)\in E$ belonging to
+subgraph $E_k$.  Therefore, $i\in V_k$ and $j\in V_k$.
+Thus, $c_i\le k$ and $d_j\ge k$.  By the Edge Lemma, $c_j=k$.
+Constraint 4 therefore holds.
+
+Constraint 5 is satisfied by construction of $e_i$ and by the Atomic Stage
+Theorem.
+
+Constraint 6 and 7 can be proved in two cases.
+The first case is when $c_i=c_j$.  Denote both $c_i$ and $c_j$ as $k$.
+From the Atomic Stage Lemma,
+$s_{i;k} \le s_{j;k}$, and when $(i,j)\in E_S$, $s_{i;k}+1 \le s_{j;k}$.
+Plug these inequalities, as well as $c_i=c_j=k$, into the definition
+of by definition of $e_i$ and $e_j$, we get
+$e_i \le e_j$ and when $(i,j)\in E_S$, $s_i+1 \le s_j$.
+
+To prove Constraint 8 for an edge $(i,j)\in E_S$, we use Criterion 1 of
+Section 3, which specifies that $(i,j)$ is in a unique subgraph, denoted
+as $E_k$.  By the Edge Lemma, $k=c_j$.  Because $(i,j)\in E_S\cap E_k$,
+the Atomic Stage Lemma guarantees that $s_{i;k} < s_{j;k}$.  Because both
+$s_{i;k}$ and $s_{j;k}$ are 0 or 1, this strict inequality ensures
+that $s_{j;k}=1$.  Therefore, $e_j:= c_j + s_{j;k} \ge c_j+1$, which is
+Constraint 8.
+
+The second case is when $c_i<c_j$ (the Edge Corollary ensures that $c_i$
+cannot be greater than $c_j$).  Because both $c_i$ and $c_j$
+are integers, $c_i+1\le c_j$.  Also because both $s_{i;c_i}$ and $s_{j;c_j}$
+are either 0 or 1,
+$e_i := c_i+s_{i;c_i}\le c_i+1 \le c_j \le c_j+s_{j;c_j}=:e_j$.
+In particular, when $(i,j)\in E_S$, the Atomic Stage Lemma ensures that
+$s_{i;c_j} < s_{j;c_j}$; since both are either 0 or 1, the strict inequality
+leads to $s_{j;c_j}=1$.  Thus
+$e_i := c_i+s_{i;c_i}\le c_i+1 \le c_j = c_j+s_{j;c_j}-1=:e_j-1$, and thus
+$e_i+1\le e_j$.
+
+Finally, we show that $V_k=\{i : c_i\le k\le d_i\}$ and
+$E_k=\{(i,j)\in E : c_j=k\}$.  For $V_k=\{i : c_i\le k\le d_i\}$ to be
+true, it is sufficient to show that $i\in V_k\Leftrightarrow c_i\le k\le d_i$.
+If $c_i>k$ or $d_i<k$, then $i\notin V_k$
+by the construction of $c_i$ and $d_i$.  It is then sufficient to
+show that $i\in V_k$ for all $k$ satisfying $c_i\le k\le d_i$.  We prove
+this by contradiction.  If the previous statement is not true, then
+because $i\in V_{c_i}$ and $i\in V_{d_i}$ by the construction of $c_i$
+and $d_i$, there must exists $c_i < k < d_i$ such that
+$i\in V_{k+1}$ but $i\notin V_k$.  By the edge lemma, all incoming edges
+of $i$ must be in subgraph $c_i$, so $i$ must be in the source of subgraph
+$k+1$.  By Criterion 2 of Section 3, $i\in V_k$ which contradicts with
+$i\notin V_k$.  Therefore $i\in V_k\Leftrightarrow c_i\le k\le d_i$ and
+$V_k=\{i : c_i\le k\le d_i\}$.
+
+For $E_k=\{(i,j)\in E : c_j=k\}$, we know from the edge lemma that
+$(i,j)\in E_k \Rightarrow c_j=k$.  From Criterion 1, each edge can only be
+in one subgraph.  Therefore, $(i,j)\in E_k \Leftarrow c_j=k$.
+Thus $E_k=\{(i,j)\in E : c_j=k\}$. \qed
+
+\subsection{Constraints in the Quarkflow Theorem $\Longrightarrow$
+Criteria in Section 3}
+
+Now if all 8 constraints are satisfied, we prove that 
+$(V_k:=\{i : c_i\le k\le d_i\},E_k:=\{(i,j)\in E : c_j=k\})$
+is a graph decomposition satisfying all three criteria specified in Section 3.
+
+First, we need to show that each $(V_k,E_k)$ is a subgraph.  For it to be
+a valid subgraph, all edges in $E_k$ must connect vertices in $V_k$.
+We need to show that
+for all $(i,j)\in E$ such that $c_j=k$, both $i$ and $j$ are in $V_k$,
+i.e., $c_i\le k\le d_i$ and $c_j\le k\le d_j$.
+Because $c_j=k$, and Constraint 1 of the Quarkflow Theorem indicates that
+$c_j\le d_j$, we have $c_j\le k\le d_j$.  From Constraint 4 of the Quarkflow
+Theorem, $c_i\le c_j\le d_i$, we have $c_i\le k\le d_i$.
+Therefore $(V_k,E_k)$ is a subgraph.
+
+Now we proceed to prove that the subgraphs satisfy the three criteria
+satisfying all three criteria of Section 3.
+
+{\bf Criterion 1:}
+Each edge $(i,j)$ belongs to one and only one subgraph by definition: it
+belongs to Subgraph $c_j$.  For each vertex $j\in V$, all incoming edges
+belongs to the same Subgraph $c_j$.  Criterion 1 therefore holds.
+
+{\bf Criterion 2:}
+If $k>1$, and vertex $j$ is in the source of Subgraph $k$, we need to show that
+$j\in V_{k-1}$.  Since $j\in V_k$, by the construction of $V_k$, we know
+$d_j\ge k\ge k-1$.  To show $j\in V_{k-1}$, we only need to show that
+$c_j \le k-1$.  From the construction of $V_k$, we know $c_j\le k$;
+so we only need to prove that $c_j\ne k$.  We do so by contradiction.
+If $c_j=k>1$, then $j$ cannot be in the source
+of the entire graph by Criterion 2 of the Quarkflow Theorem.  Therefore,
+$\exists i$ such that $(i,j)\in E$.  We know $(i,j)\notin E_k$
+Because $j$ is in the source of Subgraph $k$, $(i,j)$ cannot be in $E_k$.
+This contradicts with the construction of $E_k$ and the assumption that $c_j=k$.
+Therefore, $c_j=k$ cannot be true; $c_j \le k-1$ must be true,
+and $j\in V_{k-1}$ by the construction of $V_{k-1}$.
+In other words, the source of each subgraph, other than the
+first one, must be constrained in the previous subgraph.
+
+In addition, if $j$ is in the first subgraph, then by the
+construction of $V_1$, $c_j \le 1$, i.e., $c_j = k$ cannot be true for
+any $k$ other than 1.   Therefore by the construction of $E_k$, any edge
+$(i,j)$ must be in $E_1$.  Moreover, if $j$ is in the source of the first
+subgraph, any $(i,j)$ cannot exist in $E_1$.  Therefore, any $(i,j)$ cannot
+exists, and $j$ is in the source of the entire graph.  So the source of the
+first subgraph must be a subset of the source of the entire graph.
+On the other hand, if $i$ is in the source of the entire graph, by Constraint
+2 of the Quarkflow Theorem, $c_i=1$; therefore, $i\in V_1$ by the construction of
+$V_1$.  It also has no incoming edges in $E_1\subset E$; so $i$ must be
+in the source of the first subgraph.  Therefore, the source of the entire
+graph must be a subset of the source of the first subgraph.  Since the opposite
+is also true, the source of the entire graph is the source of the first
+subgraph.
+
+Finally, if $i$ is in the sink of $(V,E)$, then by Constraint 3 of the Quarkflow
+Theorem, $d_i=K$.  Therefore by the construction of $V_k$, $i\in V_k$.
+The sink of $(V,E)$ is contained in $V_k$.  We complete the proof of
+Criterion 2 of Section 3.
+
+{\bf Criterion 3:} Using the Atomic Stage Lemma, we only need to construct
+a set of $s_{i,k}$ for each subgraph $k$, that satisfies both conditions
+in the Atomic Stage Lemma.  It is sufficient to show that $s_{i,k}$
+constructed via Equation (\ref{s_i_e_i}) satisfy both conditions, which
+can be combined in the form of
+$$ s_{j;k} - s_{i;k}\ge
+\begin{cases}
+    1 & (i,j)\in E_k \cap E_S \\
+    0 & (i,j)\in E_k \setminus E_S
+\end{cases}.$$
+
+To show this, consider any $(i,j)\in E_k$, then by the construction of
+$E_k$, we have $c_j = k$.  Thus,
+$$s_{j;k} = e_j-c_j=e_j-k.$$
+By Constraint 4 of the Quarkflow Theorem, $c_i \le c_j=k$.   Whether the
+equality or inequality holds splits the rest of the proof into two cases:
+\begin{itemize}
+\item If $c_i=k$, then 
+$$s_{i;k} = e_i-c_i=e_i-k.$$
+Constraint 6 and 7 of the Quarkflow Theorem states that
+$$e_j - e_i \ge
+\begin{cases}
+    1 & (i,j)\in E_S \\
+    0 & (i,j)\notin E_S
+\end{cases}.$$
+Therefore,
+$$ s_{j;k} - s_{i;k} = (e_j-k)-(e_i-k) = e_j-e_i\ge
+\begin{cases}
+    1 & (i,j)\in E_S \\
+    0 & (i,j)\notin E_S
+\end{cases}.$$
+\item If $c_i<k$, then $s_{i;k} = 0$ by its construction.
+So, $s_{j;k} - s{i;k} = s_{j;k} = e_j-c_j$, which is greater than 0
+by Constraint 5 of the Quarkflow Theorem, and in the case $(i,j)\in E_S$,
+greater than 1 by Constraint 8 of the Quarkflow Theorem.  Therefore,
+$$ s_{j;k} - s_{i;k} \ge
+\begin{cases}
+    1 & (i,j)\in E_S \\
+    0 & (i,j)\notin E_S
+\end{cases}.$$
+\end{itemize}
+In both cases, we now have proved Criterion 3. \qed
+
+\bibliographystyle{siamplain}
+\bibliography{master}
+\end{document}
