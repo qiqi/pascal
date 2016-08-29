@@ -53,6 +53,10 @@ void comp_graph_write_quarkflow(comp_graph_t * g, FILE * f)
 void comp_graph_read_quarkflow(comp_graph_t * g, FILE * f)
 {
     for (int i = 0; i < g->num_vertices; ++i) {
-        fscanf(f, "%d %d %d\n", &g->cde[i][0], &g->cde[i][1], &g->cde[i][2]);
+        if (fscanf(f, "%d %d %d\n",
+                   &g->cde[i][0], &g->cde[i][1], &g->cde[i][2]) != 3)
+        {
+             exit(-1);
+        }
     }
 }
