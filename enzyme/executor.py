@@ -28,9 +28,10 @@ def execute(stages, x):
     stages, stage_indices = unique_stages(stages)
     prefix = time.strftime('%Y%m%d-%H%M%S-', time.localtime())
     tmp_path = tempfile.mkdtemp(prefix=prefix, dir=_tmp_path)
-    generate_main_c(tmp_path, stages, stage_indices, x)
-    generate_workspace_h(tmp_path)
+    #generate_main_c(tmp_path, stages, stage_indices, x)
+    #generate_workspace_h(tmp_path)
     generate_stage_h(tmp_path, stages)
+    '''
     check_call('gcc --std=c99 -O3 main.c -lm -o main'.split(), cwd=tmp_path)
     in_bytes = np.asarray(x, np.float64, 'C').tobytes()
     p = Popen('./main', cwd=tmp_path, stdin=PIPE, stdout=PIPE, stderr=PIPE)
@@ -39,6 +40,8 @@ def execute(stages, x):
     y = np.frombuffer(out_bytes, np.float64)
     y_shape = x.shape[:3] + stages[-1].sink_values[0].shape
     return np.asarray(y, x.dtype).reshape(y_shape)
+    '''
+    return
 
 def generate_main_c(path, stages, stage_indices, x):
     ni, nj, nk = x.shape[:3]

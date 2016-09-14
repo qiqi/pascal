@@ -16,7 +16,8 @@ from .symbolic_value import AtomicStage
 
 __all__ = ['stencil_array', 'decompose', 'im', 'ip', 'km', 'kp', 'jm', 'jp',
            'transpose', 'reshape', 'roll', 'copy', 'sin', 'cos', 'exp',
-           'sum', 'mean', 'builtin', 'ones', 'zeros']
+           'sum', 'mean', 'builtin', 'ones', 'zeros' , 'getConstants' , 'setConstants']
+
 
 # ============================================================================ #
 
@@ -74,6 +75,20 @@ class stencil_array(object):
             return a.__add__(self)
         a = a.value if _is_like_sa(a) else a
         return stencil_array(operators.add(self.value, a).output)
+    def __getConstants__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__getConstants__(self)
+        a = a.value if _is_like_sa(a) else a
+        return stencil_array(operators.getConstants(self.value, a).output)
+
+    def __setConstants__(self, a):
+        if hasattr(a, '__array_priority__') and \
+                a.__array_priority__ > self.__array_priority__:
+            return a.__setConstants__(self)
+        a = a.value if _is_like_sa(a) else a
+        return stencil_array(operators.setConstants(self.value, a).output)
+
 
     def __radd__(self, a):
         return self.__add__(a)
@@ -177,7 +192,12 @@ class stencil_array(object):
         return stencil_array(operators.getitem(self.value, ind).output)
 
     def __setitem__(self, ind, a):
-        a = a.value if _is_like_sa(a) else np.array(a, float)
+        if _is_like_sa(a):
+           a = a.value
+        else:
+           a = np.array(a, float)
+           
+        #a = a.value if _is_like_sa(a) else np.array(a, float)
         owner = operators.setitem(self.value, ind, a)
         assert self.shape == owner.output.shape
         self.value = owner.output
@@ -267,6 +287,11 @@ def ones(shape=()):
 def zeros(shape=()):
     return builtin.ZERO + np.zeros(shape)
 
+def getConstants(shape):
+    return   builtin.ZERO.__getConstants__(np.random.random(shape))
+
+def setConstants(consts):
+    return   builtin.ZERO.__setConstants__(consts)
 
 # ============================================================================ #
 #                                decomposition                                 #

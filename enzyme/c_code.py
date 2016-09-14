@@ -17,6 +17,19 @@ def define_constant(v, name):
         c_code += '{0}[{1}] = {2};\n'.format(name, i, v[i])
     return c_code
 
+def read_point_constant(v, name):
+    v = np.ravel(np.array(v, float));
+    c_code = 'double  * {0} = constants;\n'.format(name);
+    return c_code
+
+def define_point_constant(v, name):
+    v = np.ravel(np.array(v, float));
+    c_code = 'double  * {0} = constants;\n'.format(name);
+    for i in range(v.size):
+        c_code += '{0}[{1}] = {2};\n'.format(name, i, v[i])
+    return c_code
+
+
 def copy_to_output(name, size):
     c_code = ''
     for i in range(size):
@@ -35,7 +48,12 @@ def generate_c_code_for_op(op, name_gen):
             v.has_neighbor = v.has_neighbor and inp.has_neighbor
         else:
             const_name = next(name_gen)
-            c_code += define_constant(inp, const_name) + '\n'
+            if op.name == 'getConstants':
+               c_code += read_point_constant(inp, const_name) + '\n'
+            elif op.name == 'setConstants':
+               c_code += define_point_constant(inp, const_name) + '\n'
+            else:
+               c_code += define_constant(inp, const_name) + '\n'
             input_names.append(const_name)
     output_name = next(name_gen)
     c_code += op.c_code(input_names, output_name) + '\n'
@@ -84,6 +102,7 @@ def generate_c_code(stage):
     init_values = stage.source_values + stage.triburary_values
     names = ['source'] + ['triburary_{0}'.format(i)
                             for i in range(len(stage.triburary_values))]
+
     for v, name in zip(init_values, names):
         assert not hasattr(v, '_name')
         v._name = name
@@ -92,6 +111,7 @@ def generate_c_code(stage):
     name_gen = name_generator()
     for v in stage.sorted_values:
         c_code += generate_c_code_for_op(v.owner, name_gen)
+
     c_code += copy_to_output(v._name, v.size)
     for v in init_values + stage.sorted_values:
         del v._name

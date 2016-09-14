@@ -7,7 +7,7 @@ import numpy as np
 from .op_base import infer_context
 from .op_base import OpBase, BinaryOp, BinaryFunction, UnitaryFunction
 
-__all__ = ['add', 'sub', 'mul', 'truediv', 'pow', 'neg', 'sin', 'cos', 'exp',
+__all__ = ['setConstants' , 'getConstants' , 'add', 'sub', 'mul', 'truediv', 'pow', 'neg', 'sin', 'cos', 'exp',
            'sum']
 
 class add(BinaryOp):
@@ -16,6 +16,21 @@ class add(BinaryOp):
                           operator.add,
                           (a, b), name="add",
                           c_operator_str="+")
+class getConstants(BinaryOp):
+    def __init__(self, a, b):
+        BinaryOp.__init__(self,
+                          operator.add,
+                          (a, b), name="getConstants",
+                          c_operator_str="+")
+
+class setConstants(BinaryOp):
+    def __init__(self, a, b):
+        BinaryOp.__init__(self,
+                          operator.add,
+                          (a, b), name="setConstants",
+                          c_operator_str="+")
+
+
 
 class sub(BinaryOp):
     def __init__(self, a, b):
