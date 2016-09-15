@@ -637,20 +637,6 @@ double SweptDiscretization2D::calculate(int cycles)
 	this->converged = false;
 	this->oldNorm = 0;
 	double outputTime = 0;
-        /*
-	for(int i=1;i<2;i++)
-	{
-		char filename[80];
-		memset(filename,'\0',80);
-		sprintf(filename,"output%d_%d.bin",i,0);				
-		string file(outputDirectory + "/" + filename);
-		printf("Generating Output File: %s\n",file.c_str());
-		this->allGatherOutputToFile(i,file);				
-		printf("Generating Output File: %s - DONE!\n",file.c_str());
-	}
-	*/
-	//printf("\n");
-	//this->reportConveredQuantities();
 	int execFnc = 0;
 	double startTime = MPI_Wtime();
 	for(int c=1;c<=cycles;c++)
@@ -735,11 +721,11 @@ double SweptDiscretization2D::calculate(int cycles)
 				memset(filename,'\0',80);
 				sprintf(filename,"output%d_%d.jpg",i,c);				
 				string file(outputDirectory + "/" + filename);
-				printf("Generating Output File: %s\n",file.c_str());
+				//printf("Generating Output File: %s\n",file.c_str());
 				this->allGatherOutputToJpeg(i,file);				
-				printf("Generating Output File: %s - DONE!\n",file.c_str());
+				if(pg.rank == 0)printf("Generating Output File: %s - DONE!\n",file.c_str());
 			}
-			printf("\n");
+			//printf("\n");
 			outputTime += MPI_Wtime()-outputStart;
 		}
 

@@ -2,7 +2,7 @@ import os
 import time
 import string
 import tempfile
-from subprocess import check_call, Popen, PIPE
+from subprocess import check_call, Popen, PIPE,call
 
 import numpy as np
 from .c_code import generate_c_code
@@ -31,6 +31,13 @@ def execute(stages, x):
     #generate_main_c(tmp_path, stages, stage_indices, x)
     #generate_workspace_h(tmp_path)
     generate_stage_h(tmp_path, stages)
+    sweptPath = tmp_path + '/../../../Swept2D/'
+    call('rm -f ' + sweptPath + 'stages/stage*',shell=True)
+    call('rm -f ' + sweptPath + 'bin/*',shell=True)
+    call('cp ' + tmp_path + '/* ' + sweptPath + 'stages/',shell=True)
+    call('rm -rf ' + tmp_path , shell=True)
+    call('cd ' + sweptPath + '/scripts ; ./compile' , shell=True) 
+    call('cd ' + sweptPath + '/scripts ; ./run' , shell=True)
     '''
     check_call('gcc --std=c99 -O3 main.c -lm -o main'.split(), cwd=tmp_path)
     in_bytes = np.asarray(x, np.float64, 'C').tobytes()
@@ -42,6 +49,23 @@ def execute(stages, x):
     return np.asarray(y, x.dtype).reshape(y_shape)
     '''
     return
+def execute(stages, x , n , nx , ny):
+    if callable(stages):
+        stages = (stages,)
+    stages, stage_indices = unique_stages(stages)
+    prefix = time.strftime('%Y%m%d-%H%M%S-', time.localtime())
+    tmp_path = tempfile.mkdtemp(prefix=prefix, dir=_tmp_path)
+    #generate_main_c(tmp_path, stages, stage_indices, x)
+    #generate_workspace_h(tmp_path)
+    generate_stage_h(tmp_path, stages)
+    sweptPath = tmp_path + '/../../../Swept2D/'
+    call('rm -f ' + sweptPath + 'stages/stage*',shell=True)
+    call('rm -f ' + sweptPath + 'bin/*',shell=True)
+    call('cp ' + tmp_path + '/* ' + sweptPath + 'stages/',shell=True)
+    call('rm -rf ' + tmp_path , shell=True)
+    call('cd ' + sweptPath + '/scripts ; ./compile' , shell=True)
+    call('cd ' + sweptPath + '/scripts ; ./run ' + str(n) + ' ' + str(nx) + ' ' + str(ny), shell=True)
+    return 
 
 def generate_main_c(path, stages, stage_indices, x):
     ni, nj, nk = x.shape[:3]

@@ -92,6 +92,6 @@ def test_euler2d_rk4():
     w0 = np.random.random([8, 4, 4])
     stages = enzyme.decompose(step, enzyme.stencil_array(4),
                               comp_graph_output_file=None)
-    w1 = enzyme.execute(stages, w0)
+    enzyme.execute(stages, w0 , 32 , 2 , 1)
 
 test_euler2d_rk4()

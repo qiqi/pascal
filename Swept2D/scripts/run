@@ -1,0 +1,2 @@
+cd ../output
+mpirun -n $(($2*$3)) ../bin/swept.exe $1 $2 $3
