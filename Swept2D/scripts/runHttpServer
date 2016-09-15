@@ -1,2 +1,3 @@
-
+cd ../output
+python -m SimpleHTTPServer 30000
 
