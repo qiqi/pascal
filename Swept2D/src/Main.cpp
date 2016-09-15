@@ -44,7 +44,7 @@ int main(int argc,char *argv[])
 		localCount[i] = 0;
     stepCount[0]  = 0;
 	swept2d->setInitCondition(Substeps2D::init);
-	printf("\n");
+	//printf("\n");
 	ellapsed = MPI_Wtime();
 	swept2d->calculate(cycles);
 	ellapsed = MPI_Wtime() - ellapsed;
