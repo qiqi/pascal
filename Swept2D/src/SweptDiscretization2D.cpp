@@ -480,7 +480,7 @@ void SweptDiscretization2D::updateRemoteConstants2(unsigned char *buffer)
 	}
 }
 
-void SweptDiscretization2D::allGatherOutputToJpeg(int dataPoint,string filename)
+void SweptDiscretization2D::allGatherOutputToJpeg(int dataPoint,string filename,string otherFile)
 {
 	
 	void *buffer = NULL;
@@ -550,9 +550,10 @@ void SweptDiscretization2D::allGatherOutputToJpeg(int dataPoint,string filename)
 		//if ( !tje_encode_to_file("out.jpg", w, h, 3, colorArray) )
 		if ( !tje_encode_to_file_at_quality(filename.c_str(), 2,w, h, 3, colorArray) )
 			printf("Could not write JPEG\n");
-		
+                if ( !tje_encode_to_file_at_quality(otherFile.c_str(), 2,w, h, 3, colorArray) )
+                        printf("Could not write JPEG\n");
+		/*
 		FILE *imgf = fopen(filename.c_str(),"rb");
-		
 		fseek(imgf, 0L, SEEK_END);
 		int imgSize = ftell(imgf);
 		rewind(imgf);
@@ -560,6 +561,7 @@ void SweptDiscretization2D::allGatherOutputToJpeg(int dataPoint,string filename)
 		int count = fread(imgbuf, 1, imgSize, imgf);
 
 		fclose(imgf);
+                */
 		MPI_Free_mem(buffer);
 	}
 	MPI_Barrier(MPI_COMM_WORLD);
@@ -721,9 +723,11 @@ double SweptDiscretization2D::calculate(int cycles)
 				memset(filename,'\0',80);
 				sprintf(filename,"output%d_%d.jpg",i,c);				
 				string file(outputDirectory + "/" + filename);
+				string otherFile(outputDirectory + "/" + "output.jpg");
 				//printf("Generating Output File: %s\n",file.c_str());
-				this->allGatherOutputToJpeg(i,file);				
-				if(pg.rank == 0)printf("Generating Output File: %s - DONE!\n",file.c_str());
+				this->allGatherOutputToJpeg(i,file,otherFile);				
+				//if(pg.rank == 0)printf("Generating Output File: %s - DONE!\n",file.c_str());
+				if(pg.rank == 0)printf("Generating Output File - DONE!\n");
 			}
 			//printf("\n");
 			outputTime += MPI_Wtime()-outputStart;

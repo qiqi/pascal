@@ -112,7 +112,7 @@ public:
 	void allGatherAllOutputToSocket();
 	void allGatherAllOutputToSocket2();
 	void allGatherAllOutputToSocket3();
-        void allGatherOutputToJpeg(int dataPoint,string filename);
+        void allGatherOutputToJpeg(int dataPoint,string filename,string otherFile);
 	void allGatherOutputToFile(int dataPoint,string filename);
 	double calculateFoundationTrnsposeFoundation(double *C,int bases);
 	void calculateFoundationRinverse(double *Q,double *R,int bases);
