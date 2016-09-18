@@ -30,6 +30,14 @@ def define_point_constant(v, name):
     return c_code
 
 
+def copy_init_to_output(name, size,constants):
+    c_code = ''
+    for i in range(size-constants):
+        c_code += 'sink[{0}] = {1}[{0}];\n'.format(i, name)
+    for i in range(size-constants,size):
+        c_code += 'constants[{0}] = {1}[{2}];\n'.format(i-(size-constants), name,i)
+    return c_code
+
 def copy_to_output(name, size):
     c_code = ''
     for i in range(size):
@@ -79,21 +87,18 @@ def initialize_default_values(values):
         elif v is builtin.I.value:
             for suffix, shift in zip(['','_ip','_im','_jp','_jm','_km','_kp'],
                                      [0,   +1,   -1,   0,     0,    0,    0]):
-                c_code += ('const double {0}{1}[1] = ' +
-                           '{{(double)(i+({2}))}};\n').format(
-                                       v._name, suffix, shift)
+                c_code += ('const double {0}{1}[1] = {{i}};\n').format(v._name, suffix)
+
         elif v is builtin.J.value:
             for suffix, shift in zip(['','_ip','_im','_jp','_jm','_km','_kp'],
                                      [0,   0,     0,   +1,   -1,    0,    0]):
-                c_code += ('const double {0}{1}[1] = ' +
-                           '{{(double)(j+({2}))}};\n').format(
-                                       v._name, suffix, shift)
+                c_code += ('const double {0}{1}[1] = {{j}};\n').format(v._name, suffix)
+
         elif v is builtin.K.value:
             for suffix, shift in zip(['','_ip','_im','_jp','_jm','_km','_kp'],
                                      [0,    0,    0,    0,    0,   -1,   +1]):
-                c_code += ('const double {0}{1}[1] = ' +
-                           '{{(double)(k+({2}))}};\n').format(
-                                       v._name, suffix, shift)
+                c_code += ('const double {0}{1}[1] = {{k}};\n').format(v._name, suffix)
+ 
     return c_code + '\n'
 
 def generate_c_code(stage):
@@ -116,3 +121,25 @@ def generate_c_code(stage):
     for v in init_values + stage.sorted_values:
         del v._name
     return c_code
+
+def generate_init_code(stage,constants):
+    assert len(stage.source_values) == 1
+    assert len(stage.sink_values) == 1
+    init_values = stage.source_values + stage.triburary_values
+    names = ['source'] + ['triburary_{0}'.format(i)
+                            for i in range(len(stage.triburary_values))]
+
+    for v, name in zip(init_values, names):
+        assert not hasattr(v, '_name')
+        v._name = name
+        v.has_neighbor = True
+    c_code = initialize_default_values(init_values)
+    name_gen = name_generator()
+    for v in stage.sorted_values:
+        c_code += generate_c_code_for_op(v.owner, name_gen)
+
+    c_code += copy_init_to_output(v._name, v.size,constants)
+    for v in init_values + stage.sorted_values:
+        del v._name
+    return c_code
+

@@ -29,29 +29,10 @@ class Substeps2D
 
 public:
 
-	
-#include "init.h"
-#include "stage_0.h"
-#include "stage_1.h"
-#include "stage_2.h"
-#include "stage_3.h"
-#include "stage_4.h"
-#include "stage_5.h"
-#include "stage_6.h"
-#include "stage_7.h"
-
+	$STAGE_INCLUDE
 	static inline void executeStepFnc(int executeFnc,PointStruct2D *point)
 	{
-		
-if(executeFnc == 0) stage_0(point);
-else if(executeFnc == 1) stage_1(point);
-else if(executeFnc == 2) stage_2(point);
-else if(executeFnc == 3) stage_3(point);
-else if(executeFnc == 4) stage_4(point);
-else if(executeFnc == 5) stage_5(point);
-else if(executeFnc == 6) stage_6(point);
-else if(executeFnc == 7) stage_7(point);
-	
+		$STAGE_CALL	
 		localCount[executeFnc]++;				
 	}
 
