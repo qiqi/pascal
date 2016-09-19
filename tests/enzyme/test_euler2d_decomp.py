@@ -9,9 +9,9 @@ import enzyme
 
 def test_euler2d_rk4():
     dx = dy   = 0.05
-    xSquares  = 2;
-    ySquares  = 1;
-    n         = 128
+    xSquares  = 28;
+    ySquares  = 14;
+    n         = 16
     Nx        =  n * xSquares
     Ny        =  n * ySquares
     Lx = dx * Nx;
@@ -19,15 +19,15 @@ def test_euler2d_rk4():
 
     constants = 2
 
-    DISS_COEFF = 0.0025
+    DISS_COEFF = 0.00005
     gamma, R = 1.4, 287.
-    T0, p0, M0 = 300., 101325., 0.25
+    T0, p0, M0 = 300., 101325., 0.4
 
     rho0 = p0 / (R * T0)
     c0 = np.sqrt(gamma * R * T0)
     u0 = c0 * M0
-    W0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, 0., p0])
-    dt = dx / c0 * 0.5
+    W0 = np.array([np.sqrt(rho0), np.sqrt(rho0) * u0, np.sqrt(rho0) * u0 * 0.1, p0])
+    dt = dx / c0 * 1.5
     consts = enzyme.getConstants([2])
     obstacle = consts[0]
     fan      = consts[1]
@@ -77,15 +77,15 @@ def test_euler2d_rk4():
                - (gamma - 1) * (ux * diffx(p) + uy * diffy(p) )
 
         one = ones(r.shape)
-        dissipation_x = dissipation(r, ux, DISS_COEFF) * c0 / dx
-        dissipation_y = dissipation(r, uy, DISS_COEFF) * c0 / dy
+        # dissipation_x = dissipation(r, ux, DISS_COEFF) * c0 / dx
+        # dissipation_y = dissipation(r, uy, DISS_COEFF) * c0 / dy
         dissipation_p = dissipation(one, p, DISS_COEFF) * c0 / dx
 
-        momentum_x += dissipation_x
-        momentum_y += dissipation_y
-        energy += dissipation_p \
-                - (gamma - 1) * (ux * dissipation_x +
-                                 uy * dissipation_y )
+        # momentum_x += dissipation_x
+        # momentum_y += dissipation_y
+        energy += dissipation_p
+        #        - (gamma - 1) * (ux * dissipation_x +
+        #                         uy * dissipation_y )
 
         return assemble_rhs(0.5 * mass / r,
                             momentum_x / r,
@@ -96,9 +96,9 @@ def test_euler2d_rk4():
         x = (enzyme.builtin.I + 0.5) * dx - 0.2 * Lx
         y = (enzyme.builtin.J + 0.5) * dy - 0.5 * Ly
 
-        obstacle = enzyme.exp(-(x*x + ((y-.25)*(y-.25))/.1)**8)
-        fan = 2 * (enzyme.cos((x / Lx + 0.2) * np.pi)**64 +
-                   enzyme.sin((y / Ly) * np.pi)**64)
+        obstacle = enzyme.exp(-((x**2 + (y-1./3)*(y-1./3))*4)**32)
+
+        fan = 1 * enzyme.cos((x / Lx + 0.2) * np.pi)**64
 
         u[0] = np.sqrt(rho0)
         u[1] = np.sqrt(rho0) * u0
