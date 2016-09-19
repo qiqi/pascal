@@ -120,6 +120,6 @@ def test_euler2d_rk4():
                                       comp_graph_output_file=None)
     stages = enzyme.decompose(step, enzyme.stencil_array(4),
                               comp_graph_output_file=None)
-    enzyme.execute(initialization,stages, constants , n , xSquares , ySquares)
+    enzyme.execute(initialization,stages, constants , n , xSquares , ySquares , 1)
 
 test_euler2d_rk4()

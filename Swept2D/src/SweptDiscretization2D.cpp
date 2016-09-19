@@ -96,6 +96,7 @@ SweptDiscretization2D::SweptDiscretization2D(int n,int substeps,int dataPointSiz
 	this->n = n;
 	this->substeps = substeps;
 	this->dataPointSize = dataPointSize;
+        this->outputIndex   = 0;
 	//this->constants = totalConstants;
 	this->constants = totalConstants + totalConvergenceQuantities;
 	this->remoteConstantsCount = remoteConstantsCount;
@@ -181,6 +182,11 @@ void SweptDiscretization2D::setConvergenceCheck(int cycles)
 void SweptDiscretization2D::setOutputLength(int outputLength)
 {
 	this->outputLength = outputLength;
+}
+
+void SweptDiscretization2D::setOutputIndex(int outputIndex)
+{
+	this->outputIndex = outputIndex;
 }
 
 double SweptDiscretization2D::calculateFoundationTrnsposeFoundation(double *C,int bases)
@@ -717,15 +723,15 @@ double SweptDiscretization2D::calculate(int cycles)
 		{
 			double outputStart = MPI_Wtime();
 			//for(int i=0;i<this->outputLength;i++)
-			for(int i=1;i<2;i++)
+			//for(int i=1;i<2;i++)
 			{
 				char filename[80];
 				memset(filename,'\0',80);
-				sprintf(filename,"output%d_%d.jpg",i,c);				
+				sprintf(filename,"output_%d.jpg",c);				
 				string file(outputDirectory + "/" + filename);
 				string otherFile(outputDirectory + "/" + "output.jpg");
 				//printf("Generating Output File: %s\n",file.c_str());
-				this->allGatherOutputToJpeg(i,file,otherFile);				
+				this->allGatherOutputToJpeg(this->outputIndex,file,otherFile);				
 				//if(pg.rank == 0)printf("Generating Output File: %s - DONE!\n",file.c_str());
 				if(pg.rank == 0)printf("Generating Output File - DONE!\n");
 			}

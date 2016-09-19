@@ -55,6 +55,7 @@ class SweptDiscretization2D
 private:
 	int n;
 	int panelSize;
+        int outputIndex;
 	int substeps;
 	int dataPointSize;
 	int constants;
@@ -121,6 +122,7 @@ public:
 	void updateRemoteConstants2(unsigned char *buffer);
 	void printConstantFromFoundation(int constNum = 0);
 	void updateDataPoint(double *buffer,int dataPointNbr);
+	void setOutputIndex(int outputIndex);
 	void calculateResidul(double *r);
 	~SweptDiscretization2D();
 };

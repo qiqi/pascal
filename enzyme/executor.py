@@ -22,7 +22,9 @@ def unique_stages(stages):
         stage_indices.append(unique_stage_dict[s])
     return unique_stage_list, stage_indices
 
-def execute(initialization,stages, constants , n , nx , ny):
+def execute(initialization , stages, constants , n , nx , ny , outIndex):
+    dataPointSize = max(max([s.source_values[0].size for s in stages]),
+                    max([s.sink_values[0].size for s in stages]))
     if callable(stages):
         stages = (stages,)
     stages, stage_indices = unique_stages(stages)
@@ -37,7 +39,10 @@ def execute(initialization,stages, constants , n , nx , ny):
     call('cp ' + tmp_path + '/* ' + sweptPath + 'stages/',shell=True)
     call('rm -rf ' + tmp_path , shell=True)
     call('cd ' + sweptPath + '/scripts ; ./compile' , shell=True)
-    call('cd ' + sweptPath + '/scripts ; ./run ' + str(n) + ' ' + str(nx) + ' ' + str(ny), shell=True)
+    #print 'cd ' + sweptPath + '/scripts ; ./run ' + str(n) + ' ' + str(nx) + ' ' + str(ny) + ' ' +  \
+    #     str(len(stages)) + ' ' + str(dataPointSize) + ' ' + str(constants) + ' ' + str(outIndex)
+    call('cd ' + sweptPath + '/scripts ; ./run ' + str(n) + ' ' + str(nx) + ' ' + str(ny) + ' ' +  \
+         str(len(stages)) + ' ' + str(dataPointSize) + ' ' + str(constants) + ' ' + str(outIndex) , shell=True)
     return 
 
 def generate_main_c(path, stages, stage_indices, x):

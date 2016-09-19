@@ -26,13 +26,18 @@ int main(int argc,char *argv[])
 	convergenceCheckEvery = 1;
 	totalGlobals = 6;
 	fileOutputEvery   = 5;
+        substeps = atoi(argv[4]);
+        dataPointSize = atoi(argv[5]);
+        constants     = atoi(argv[6]);
+        int outIndex  = atoi(argv[7]);
 
 	initMPI(argc,argv,xNodes,yNodes,false,port);
 	double ellapsed;
-        swept2d = new SweptDiscretization2D(n,8,48,2,0,0);    
+        swept2d = new SweptDiscretization2D(n,substeps,dataPointSize,constants,0,0);    
 	Substeps2D::setInitParameters(xNodes*n,yNodes*n);
 	swept2d->setOutputDirectory(outputDirectory);
 	swept2d->setFileOutput(fileOutputEvery);
+        swept2d->setOutputIndex(outIndex);
 
     if(totalGlobals > 0)
     {
