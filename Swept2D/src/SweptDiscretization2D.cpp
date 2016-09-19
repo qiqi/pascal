@@ -555,9 +555,18 @@ void SweptDiscretization2D::allGatherOutputToJpeg(int dataPoint,string filename,
 		
 		//if ( !tje_encode_to_file("out.jpg", w, h, 3, colorArray) )
 		if ( !tje_encode_to_file_at_quality(filename.c_str(), 2,w, h, 3, colorArray) )
+                {
 			printf("Could not write JPEG\n");
-                if ( !tje_encode_to_file_at_quality(otherFile.c_str(), 2,w, h, 3, colorArray) )
-                        printf("Could not write JPEG\n");
+		}
+		else
+		{
+			string cmd("ln -sf ");
+                        cmd.append(filename.c_str()) ; cmd.append(" ") ; cmd.append(otherFile.c_str());
+                        int retVal = system(cmd.c_str());
+			//printf("COMMAND: %s\n",cmd.c_str());
+		}
+                //if ( !tje_encode_to_file_at_quality(otherFile.c_str(), 2,w, h, 3, colorArray) )
+                //        printf("Could not write JPEG\n");
 		/*
 		FILE *imgf = fopen(filename.c_str(),"rb");
 		fseek(imgf, 0L, SEEK_END);
@@ -725,13 +734,26 @@ double SweptDiscretization2D::calculate(int cycles)
 			//for(int i=0;i<this->outputLength;i++)
 			//for(int i=1;i<2;i++)
 			{
+				long timestep = (c*this->n)/substeps;
 				char filename[80];
+				char stepfilename[80];
 				memset(filename,'\0',80);
+				memset(stepfilename,'\0',80);
 				sprintf(filename,"output_%d.jpg",c);				
+				sprintf(stepfilename,"output_%d.txt",c);				
 				string file(outputDirectory + "/" + filename);
+				string stepfile(outputDirectory + "/" + stepfilename);
 				string otherFile(outputDirectory + "/" + "output.jpg");
+				string otherStepFile(outputDirectory + "/" + "output.txt");
+                                FILE *stepFile = fopen((char*)stepfile.c_str(),"w");
+				fprintf(stepFile,"Timestep: %ld",timestep);
+				fclose(stepFile);
 				//printf("Generating Output File: %s\n",file.c_str());
-				this->allGatherOutputToJpeg(this->outputIndex,file,otherFile);				
+				this->allGatherOutputToJpeg(this->outputIndex,file,otherFile);	
+                                string cmd("ln -sf "); cmd.append(stepfile) ; cmd.append(" ") ; cmd.append(otherStepFile);
+				if(pg.rank == 0)
+					//printf("%s\n",cmd.c_str());
+					int retVal = system(cmd.c_str());			
 				//if(pg.rank == 0)printf("Generating Output File: %s - DONE!\n",file.c_str());
 				if(pg.rank == 0)printf("Generating Output File - DONE!\n");
 			}

@@ -35,12 +35,12 @@ def execute(initialization , stages, constants , n , nx , ny , outIndex):
     generate_stage_h(tmp_path, initialization,stages,constants)
     sweptPath = tmp_path + '/../../../Swept2D/'
     call('rm -f ' + sweptPath + 'stages/*.h',shell=True)
+    call('rm -f ' + sweptPath + 'output/output_*',shell=True)
     call('rm -f ' + sweptPath + 'bin/*',shell=True)
     call('cp ' + tmp_path + '/* ' + sweptPath + 'stages/',shell=True)
     call('rm -rf ' + tmp_path , shell=True)
     call('cd ' + sweptPath + '/scripts ; ./compile' , shell=True)
-    #print 'cd ' + sweptPath + '/scripts ; ./run ' + str(n) + ' ' + str(nx) + ' ' + str(ny) + ' ' +  \
-    #     str(len(stages)) + ' ' + str(dataPointSize) + ' ' + str(constants) + ' ' + str(outIndex)
+    call('cd ' + sweptPath + '/scripts ; ./compile' , shell=True)
     call('cd ' + sweptPath + '/scripts ; ./run ' + str(n) + ' ' + str(nx) + ' ' + str(ny) + ' ' +  \
          str(len(stages)) + ' ' + str(dataPointSize) + ' ' + str(constants) + ' ' + str(outIndex) , shell=True)
     return 
