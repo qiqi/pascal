@@ -1,2 +1,2 @@
 cd ../output
-mpirun -n $(($2*$3)) ../bin/swept.exe $1 $2 $3 $4 $5 $6 $7
+mpirun.mpich2 -n $(($2*$3)) -hostfile ../scripts/hosts ../bin/swept.exe $1 $2 $3 $4 $5 $6 $7
