@@ -1,5 +1,7 @@
 language: python
 
+sudo: required
+
 python:
     - 2.6
     - 2.7
@@ -20,3 +22,5 @@ install: pip install -r requirements.txt
 script:
     - make
     - py.test --doctest-modules --cov-report term-missing --cov=enzyme
+after_success:
+    - coveralls
