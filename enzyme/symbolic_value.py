@@ -224,9 +224,9 @@ def decompose_operations(operations, input_values, output_values,
     stages = []
     stage_input_values = list(input_values)
     for k in range(1, num_stages):
-        next_stage_input_values = filter(
+        next_stage_input_values = list(filter(
                 lambda v : v.create_stage <= k and v.discard_stage > k,
-                decomp_values)
+                decomp_values))
         stages.append(AtomicStage(stage_input_values + additional_input_values,
                                   next_stage_input_values))
         stage_input_values = next_stage_input_values
