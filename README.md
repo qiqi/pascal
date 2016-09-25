@@ -13,13 +13,13 @@ each stage into C code, to be plugged in into a stencil-based computational
 framework.
 
 # Download and use
-The best way to download fds is using pip. Pip is likely included in
+The best way to download pascal is using pip. Pip is likely included in
 your Python installation. If not, see [instruction
-here](https://pip.pypa.io/en/stable/installing/). To install fds
+here](https://pip.pypa.io/en/stable/installing/). To install pascal
 using pip, simply type
 
 ```
-sudo pip install fds
+sudo pip install pascal
 ```
 
 # Tutorials
