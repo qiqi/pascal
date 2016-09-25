@@ -3,7 +3,7 @@ import string
 
 import numpy as np
 
-from enzyme.symbolic_value import _is_like_sa_value, stencil_array_value
+from enzyme.symbolic_value import _is_like_sa_value, symbolic_array_value
 
 def infer_context(a):
     '''
@@ -54,7 +54,7 @@ class OpBase(object):
             shape = py_operation(*shape_keeper_inputs).shape
 
         self.access_neighbor = access_neighbor
-        self.output = stencil_array_value(shape, self)
+        self.output = symbolic_array_value(shape, self)
 
     def perform(self, input_objects):
         assert len(input_objects) == len(self.inputs)

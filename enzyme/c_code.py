@@ -20,7 +20,7 @@ def define_constant(v, name):
 def copy_to_output(name, size):
     c_code = ''
     for i in range(size):
-        c_code += 'sink[{0}] = {1}[{0}];\n'.format(i, name)
+        c_code += 'output[{0}] = {1}[{0}];\n'.format(i, name)
     return c_code
 
 def generate_c_code_for_op(op, name_gen):
@@ -79,20 +79,20 @@ def initialize_default_values(values):
     return c_code + '\n'
 
 def generate_c_code(stage):
-    assert len(stage.source_values) == 1
-    assert len(stage.sink_values) == 1
-    init_values = stage.source_values + stage.triburary_values
-    names = ['source'] + ['triburary_{0}'.format(i)
-                            for i in range(len(stage.triburary_values))]
+    assert len(stage.input_values) == 1
+    assert len(stage.output_values) == 1
+    init_values = stage.input_values + stage.additional_input_values
+    names = ['input'] + ['additional_input_{0}'.format(i)
+                         for i in range(len(stage.additional_input_values))]
     for v, name in zip(init_values, names):
         assert not hasattr(v, '_name')
         v._name = name
         v.has_neighbor = True
     c_code = initialize_default_values(init_values)
     name_gen = name_generator()
-    for v in stage.sorted_values:
-        c_code += generate_c_code_for_op(v.owner, name_gen)
-    c_code += copy_to_output(v._name, v.size)
-    for v in init_values + stage.sorted_values:
+    for op in stage.sorted_operations:
+        c_code += generate_c_code_for_op(op, name_gen)
+    c_code += copy_to_output(op.output._name, op.output.size)
+    for v in init_values + [op.output for op in stage.sorted_operations]:
         del v._name
     return c_code

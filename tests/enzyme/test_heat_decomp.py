@@ -12,6 +12,7 @@ dot_outfile = os.path.join(my_path, 'heat_midpoint.dot')
 import numpy as np
 import enzyme
 
+#if __name__ == '__main__':
 def test_heat_midpoint():
     im, ip = enzyme.im, enzyme.ip
     jm, jp = enzyme.jm, enzyme.jp
@@ -26,9 +27,9 @@ def test_heat_midpoint():
                                  km(uh) + kp(uh) - 2 * uh)
     Ni, Nj, Nk = 8, 4, 3
     u0 = np.random.random([Ni, Nj, Nk])
-    G1, G2 = enzyme.decompose(
+    (G1, G2), Init = enzyme.decompose(
             heat_midpoint, comp_graph_output_file=graph_outfile)
-    u1 = enzyme.execute((G1, G2), u0)
+    u1 = enzyme.execute((G1, G2), u0).reshape(u0.shape)
     im, ip = lambda u : np.roll(u,1,0), lambda u : np.roll(u,-1,0)
     jm, jp = lambda u : np.roll(u,1,1), lambda u : np.roll(u,-1,1)
     km, kp = lambda u : np.roll(u,1,2), lambda u : np.roll(u,-1,2)
@@ -36,7 +37,7 @@ def test_heat_midpoint():
     assert abs(u1 - u2).max() < 1E-10
 
     u_mid = enzyme.execute(G1, u0)
-    u3 = enzyme.execute(G2, u_mid)
+    u3 = enzyme.execute(G2, u_mid).reshape(u0.shape)
     assert abs(u1 - u3).max() < 1E-10
 
     assert os.path.exists(vis_bin)

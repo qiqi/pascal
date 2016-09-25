@@ -3,8 +3,9 @@
 
 typedef struct {
     double * workspace;
-    double * source_workspace;
-    double * sink_workspace;
+    double * input_workspace;
+    double * const_workspace;
+    double * output_workspace;
 } Workspace;
 
 void workspace_init(Workspace * p);
@@ -14,6 +15,9 @@ void workspace_finalize(Workspace * p);
 #define FOR_IJK for (int64_t i = 0; i < NI; ++i) \
                 for (int64_t j = 0; j < NJ; ++j) \
                 for (int64_t k = 0; k < NK; ++k)
+#define FOR_IJK_reversed for (int64_t i = NI-1; i >= 0; --i) \
+                         for (int64_t j = NJ-1; j >= 0; --j) \
+                         for (int64_t k = NK-1; k >= 0; --k)
 #define FOR_IJ for (int64_t i = 0; i < NI; ++i) \
                for (int64_t j = 0; j < NJ; ++j)
 #define FOR_IK for (int64_t i = 0; i < NI; ++i) \

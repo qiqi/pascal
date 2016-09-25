@@ -23,7 +23,7 @@ def test_euler_rk4():
 
     Lx, Ly, Lz = 40., 10., 5.
     dx = dy = dz = 0.05
-    dt = dx / c0 * 0.5
+    dt = dx / c0 * 0.1
 
     Ni, Nj, Nk = 8, 4, 2
 
@@ -118,9 +118,9 @@ def test_euler_rk4():
         return w + (dw0 + dw3) / 6 + (dw1 + dw2) / 3
 
     w0 = np.random.random([Ni, Nj, Nk, 5])
-    stages = enzyme.decompose(step, enzyme.stencil_array(5),
-                              comp_graph_output_file=None)
-    w1 = enzyme.execute(stages, w0)
+    stages, init = enzyme.decompose(step, enzyme.symbolic_array(5),
+                                    comp_graph_output_file=None)
+    w1 = enzyme.execute(stages, w0, init)
 
     I, J, K = np.meshgrid(range(Ni), range(Nj), range(Nk), indexing='ij')
     x = (I + 0.5) * dx - 0.2 * Lx
@@ -155,8 +155,5 @@ def test_euler_rk4():
     w2 = step(w0)
     assert abs(w1 - w2).max() < 1E-6
 
-    # assert os.path.exists(vis_bin)
-    # assert os.path.exists(graph_outfile)
-    # subprocess.call([vis_bin, graph_outfile, dot_outfile])
-    # assert os.path.exists(dot_outfile)
-    # assert os.path.exists(dot_outfile + '.pdf')
+# if __name__ == '__main__':
+#     test_euler_rk4()

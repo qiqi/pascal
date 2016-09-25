@@ -22,31 +22,40 @@ def unique_stages(stages):
         stage_indices.append(unique_stage_dict[s])
     return unique_stage_list, stage_indices
 
-def execute(stages, x):
+def execute(stages, x, init=None):
+    empty = np.empty(x.shape[:3] + (0,))
+    constants = empty if init is None else execute(init, empty)
     if callable(stages):
         stages = (stages,)
+    if len(stages) == 0:
+        return np.empty(x.shape[:3] + (0,))
     stages, stage_indices = unique_stages(stages)
     prefix = time.strftime('%Y%m%d-%H%M%S-', time.localtime())
     tmp_path = tempfile.mkdtemp(prefix=prefix, dir=_tmp_path)
-    generate_main_c(tmp_path, stages, stage_indices, x)
+    generate_main_c(tmp_path, stages, stage_indices, x, constants)
     generate_workspace_h(tmp_path)
-    generate_stage_h(tmp_path, stages)
+    generate_stage_h(tmp_path, stages, constants.shape[3])
     check_call('gcc --std=c99 -O3 main.c -lm -o main'.split(), cwd=tmp_path)
-    in_bytes = np.asarray(x, np.float64, 'C').tobytes()
     p = Popen('./main', cwd=tmp_path, stdin=PIPE, stdout=PIPE, stderr=PIPE)
-    out_bytes, err = p.communicate(in_bytes)
+    x_bytes = np.asarray(x, np.float64, 'C').tobytes()
+    c_bytes = np.asarray(constants, np.float64, 'C').tobytes()
+    out_bytes, err = p.communicate(c_bytes + x_bytes)
     assert len(err.strip()) == 0
     y = np.frombuffer(out_bytes, np.float64)
-    y_shape = x.shape[:3] + stages[-1].sink_values[0].shape
+    y_shape = x.shape[:3] + stages[-1].output_values[0].shape
     return np.asarray(y, x.dtype).reshape(y_shape)
 
-def generate_main_c(path, stages, stage_indices, x):
+def generate_main_c(path, stages, stage_indices, x, constants):
+    assert x.shape[:3] == constants.shape[:3]
     ni, nj, nk = x.shape[:3]
-    max_vars = max(max([s.source_values[0].size for s in stages]),
-                   max([s.sink_values[0].size for s in stages]))
-    assert np.prod(x.shape[3:]) == stages[0].source_values[0].size
-    num_inputs = stages[0].source_values[0].size
-    num_outputs = stages[-1].sink_values[0].size
+    x = x.reshape((ni,nj,nk,-1))
+    constants = constants.reshape((ni,nj,nk,-1))
+    max_vars = max(max([s.input_values[0].size for s in stages]),
+                   max([s.output_values[0].size for s in stages]))
+    num_inputs = x.shape[3]
+    num_consts = constants.shape[3]
+    num_outputs = stages[-1].output_values[0].size
+    assert stages[0].input_values[0].size == num_inputs + num_consts
 
     names = ['stage_{0}'.format(i) for i in range(len(stages))]
     include = '\n'.join(['#include "{0}.h"'.format(n) for n in names])
@@ -56,7 +65,9 @@ def generate_main_c(path, stages, stage_indices, x):
     template = open(os.path.join(_my_path, 'c_template', 'main.c')).read()
     template = string.Template(template)
     code = template.substitute(NI=ni, NJ=nj, NK=nk, MAX_VARS=max_vars,
-                               NUM_INPUTS=num_inputs, NUM_OUTPUTS=num_outputs,
+                               NUM_INPUTS=num_inputs,
+                               NUM_CONSTS=num_consts,
+                               NUM_OUTPUTS=num_outputs,
                                INCLUDE=include, STAGES=stages)
     with open(os.path.join(path, 'main.c'), 'wt') as f:
         f.write(code)
@@ -66,20 +77,25 @@ def generate_workspace_h(path):
     with open(os.path.join(path, 'workspace.h'), 'wt') as f:
         f.write(code)
 
-def generate_stage_h(path, stages):
+def generate_stage_h(path, stages, num_consts):
     for s in stages:
-        assert len(s.source_values) == len(s.sink_values) == 1
+        assert len(s.input_values) == len(s.output_values) == 1
     template = open(os.path.join(_my_path, 'c_template', 'stage.h')).read()
     template = string.Template(template)
-    max_vars = max(max([s.source_values[0].size for s in stages]),
-                   max([s.sink_values[0].size for s in stages]))
+    # max_vars = max(max([s.input_values[0].size for s in stages]),
+    #                max([s.output_values[0].size for s in stages]))
     for i, s in enumerate(stages):
         stage_name = 'stage_{0}'.format(i)
         code = generate_c_code(s)
-        num_inputs = s.source_values[0].size
-        num_outputs = s.sink_values[0].size
-        code = template.substitute(
-                MAX_VARS=max_vars, STAGE_NAME=stage_name,
-                NUM_INPUTS=num_inputs, NUM_OUTPUTS=num_outputs, CODE=code)
+        num_inputs = s.input_values[0].size - num_consts
+        num_outputs = s.output_values[0].size
+        code = template.substitute(STAGE_NAME=stage_name,
+                                   NUM_INPUTS=num_inputs,
+                                   NUM_CONSTS=num_consts,
+                                   NUM_OUTPUTS=num_outputs,
+                                   CODE=code)
+        for k in range(num_consts):
+            code = code.replace('input[{0}]'.format(num_inputs + k),
+                                'consts[{0}]'.format(k))
         with open(os.path.join(path, stage_name + '.h'), 'wt') as f:
             f.write(code)
