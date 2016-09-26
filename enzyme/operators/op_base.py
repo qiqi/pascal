@@ -37,10 +37,10 @@ class OpBase(object):
             if _is_like_sa_value(inp):
                 self.inputs.append(inp)
             else:
-                try:
-                    inp = np.array(inp, np.float64)
-                except (IndexError, TypeError):
-                    pass
+                inp = np.array(inp, np.float64)
+                #try:
+                #except (IndexError, TypeError):
+                #    pass
                 self.inputs.append(inp)
         self.name = name
 

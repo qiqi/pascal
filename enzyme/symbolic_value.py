@@ -132,10 +132,10 @@ class AtomicStage(object):
 
     def __call__(self, input_map):
         input_values = self.input_values + self.additional_input_values
-        if hasattr(input_map, '__call__'):
-            actual_inputs = [input_map(v) for v in input_values]
-        elif hasattr(input_map, '__getitem__'):
-            actual_inputs = [input_map[v] for v in input_values]
+        # if hasattr(input_map, '__call__'):
+        #     actual_inputs = [input_map(v) for v in input_values]
+        # elif hasattr(input_map, '__getitem__'):
+        actual_inputs = [input_map[v] for v in input_values]
         # _act attributes are assigned to inputs
         values_assigned_act = set()
         input_values = self.input_values + self.additional_input_values
