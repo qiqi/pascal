@@ -21,6 +21,6 @@ install: pip install -r requirements.txt
 # command to run tests
 script:
     - make
-    - py.test --doctest-modules --cov-report term-missing --cov=enzyme
+    - py.test --doctest-modules -v --cov enzyme --cov-report term-missing
 after_success:
     - coveralls
